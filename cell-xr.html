@@ -370,7 +370,7 @@
         <label class="toggle"><input type="checkbox" id="g-thumb">Thumb · brake / reset<small>L</small></label>
         <label class="toggle"><input type="checkbox" id="g-crane">Crane · thumbs up / down<small>Q E</small></label>
         <label class="toggle"><input type="checkbox" id="g-squeeze">Stretch · pinch both sides</label>
-        <label class="toggle"><input type="checkbox" id="g-dust">Reset · dust off hands</label>
+        <label class="toggle"><input type="checkbox" id="g-dust">Reset · wipe side to side (open hand)</label>
         <label class="toggle"><input type="checkbox" id="g-burst">Explode · two fists burst open<small>B</small></label>
         <label class="toggle"><input type="checkbox" id="g-pointer">Finger gun laser<small>J</small></label>
         <label class="toggle"><input type="checkbox" id="g-clap" checked>Reset · double clap <small>every set</small></label>
@@ -550,8 +550,8 @@ const SETS = {
     help: 'Set objects spinning without picking them up. Thumbs-up brakes; hold it to set the object upright.',
     legend: [['N POKE', 'nudge'], ['O SWIPE', 'flick'], ['P FIST', 'drag to spin'], ['L THUMB', 'brake · hold to reset']] },
   navigate: { name: 'Navigate', on: ['crane', 'squeeze', 'dust', 'burst'],
-    help: 'Thumbs up cranes the camera up, thumbs down cranes it down, for as long as you hold it (Q and E on the keyboard do the same). Pinch with both hands on an object and pull apart to grow it, together to shrink it; release and re-pinch to keep going. Pinch both hands and hold still to set it back to 1×. On a loaded model, make two fists and burst both hands open to explode it; close both open hands into fists to bring it back together.',
-    legend: [['THUMB UP / DOWN', 'crane'], ['PINCH BOTH HANDS', 'stretch · shrink · repeat'], ['PINCH + HOLD', 'back to 1×'], ['FISTS → OPEN', 'explode'], ['OPEN → FISTS', 'collapse'], ['DUST OFF', 'reset']] },
+    help: 'Thumbs up cranes the camera up, thumbs down cranes it down, for as long as you hold it (Q and E on the keyboard do the same). Pinch with both hands on an object and pull apart to grow it, together to shrink it; release and re-pinch to keep going. Pinch both hands and hold still to set it back to 1×. On a loaded model, make two fists and burst both hands open to explode it; close both open hands into fists to bring it back together. Wipe an open hand side to side a few times to reset.',
+    legend: [['THUMB UP / DOWN', 'crane'], ['PINCH BOTH HANDS', 'stretch · shrink · repeat'], ['PINCH + HOLD', 'back to 1×'], ['FISTS → OPEN', 'explode'], ['OPEN → FISTS', 'collapse'], ['WIPE × 3', 'reset']] },
   pointer: { name: 'Pointer', on: ['pointer', 'grab', 'depth', 'twist'],
     help: 'Finger gun aims a laser; drop your thumb to fire. Fire at an object to lock it, at a spot to send it there, at it again to summon it. Pinch in empty space to grab the locked object from afar.',
     legend: [['J FINGER GUN', 'aim'], ['THUMB DOWN', 'fire · lock · send'], ['FIRE AGAIN', 'summon'], ['PINCH', 'remote grab']] },
@@ -845,9 +845,19 @@ function classify(t, dt, fresh) {
   const curled = fingers.map(([tip, pip]) => d(tip, 0) < d(pip, 0));
   t.curl = fingers.reduce((a, [tip, , mcp]) => a + d(tip, 0) / d(mcp, 0), 0) / 4; // ~1.8 open · ~1.2 grip · <1.05 fist
   const thumbGap = Math.min(d(4, 6), d(4, 10)) / unit;  // thumb tucked over the fingers (fist) vs opposed (grab)
-  const thumbOut = d(4, 5) / unit > 0.75 && d(4, 0) > d(3, 0) * 1.05;
-  const thumbUp = thumbOut && P[4].y < P[5].y - 0.25 * t.scale;
-  const thumbDown = thumbOut && P[4].y > P[5].y + 0.25 * t.scale;
+  // Thumbs up / down: a straight thumb (base -> tip nearly as long as its two segments) standing clear of the
+  // index knuckle, pointing up or down. Uses 3D landmarks, so it works with the hand side-on to the camera,
+  // which is how most people hold a thumbs-up. (y points down in both MediaPipe spaces.)
+  const thumbStraight = d(2, 4) / ((d(2, 3) + d(3, 4)) || 1) > 0.88;
+  const thumbOut = thumbStraight && d(4, 5) / unit > 0.38 && d(4, 0) > d(3, 0) * 1.02;
+  const thumbDy = Wl ? (Wl[4].y - Wl[2].y) / (d(2, 4) || 1) : (P[4].y - P[2].y) / (d2(2, 4) || 1);
+  // ...and its tip must clear the folded fingers: above them for up, below them for down. That separates a
+  // thumbs-up from a fist with the thumb laid across the fingers, which is also straight and angled upward.
+  const yOf = i => Wl ? Wl[i].y : P[i].y, gap = Wl ? 0.003 : 0.03 * t.scale;
+  const fingerYs = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map(yOf);
+  const thumbUp = thumbOut && thumbDy < -0.55 && yOf(4) < Math.min(...fingerYs) - gap;
+  const thumbDown = thumbOut && thumbDy > 0.55 && yOf(4) > Math.max(...fingerYs) + gap;
+  const folded = !ext.some(Boolean) && t.curl < 1.4;   // fingers tucked, not necessarily a tight fist
   // Finger gun: index out, other three curled. Thumb up = cocked (aiming); dropping the thumb onto the
   // index fires once. Hysteresis means a half-raised thumb keeps whatever state it was in.
   const gunPose = ext[0] && curled[1] && curled[2] && curled[3];
@@ -860,8 +870,8 @@ function classify(t, dt, fresh) {
 
   let raw;
   if (t.pinching) raw = 'pinch';
-  else if (thumbUp && curled.every(Boolean)) raw = 'thumb';
-  else if (thumbDown && curled.every(Boolean)) raw = 'thumbdown';
+  else if (thumbUp && folded) raw = 'thumb';
+  else if (thumbDown && folded) raw = 'thumbdown';
   else if (gunPose) raw = t.cocked ? 'gun' : 'poke';
   else if (curled.every(Boolean) && t.curl < 1.05 && thumbGap < 0.4) raw = 'fist';
   else if (!ext.some(Boolean) && t.curl < 1.5 && thumbGap >= 0.4) raw = 'grab';
@@ -1304,7 +1314,7 @@ const heldKeys = new Set();   // Q / E work in every set, like Unity's fly camer
 addEventListener('keyup', e => heldKeys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => heldKeys.clear());
 
-/* ---------- two hands: stretch, clap and dust-off reset ---------- */
+/* ---------- two hands: stretch, clap; plus the one-hand wipe reset ---------- */
 function newPair(a, b) {
   return { a, b, mode: null, cand: null, candN: 0, offN: 0, cooldown: 0,
     y0: 0, cam0: 0, d0: 1, s0: 1, target: null,
@@ -1386,57 +1396,55 @@ function pairStep(P, now) {
   if (settings.burst && both && idle(A) && idle(B) && !P.mode) burstStep(P, A, B, now);
   const avgS = both ? (A.scale + B.scale) / 2 : 1;
 
-  // Double clap: palms meet twice within 0.9 s. Overlapping hands often make the tracker drop one,
-  // so losing a hand while they were nearly touching also counts as a clap.
+  // Double clap: palms meet twice within 1.2 s. Side-on, fast-moving hands are the webcam's worst case:
+  // overlapping hands make the tracker drop one, and motion blur can drop both. Either loss while the hands
+  // were close counts as the clap.
   if (settings.clap) {
     if (both) {
       const dn = Math.hypot(B.palm.x - A.palm.x, B.palm.y - A.palm.y) / avgS;
-      if (dn > 2) P.armed = true;
-      if (P.armed && dn < 1.1) { P.armed = false; clap(P, now); }
+      if (dn > 1.7) P.armed = true;
+      if (P.armed && dn < 1.35) { P.armed = false; clap(P, now); }
       P.lastD = dn; P.lastBoth = now;
-    } else if (P.armed && P.lastD < 1.8 && now - P.lastBoth < 150 && (A.visible || B.visible)) {
+    } else if (P.armed && P.lastD < 2.3 && now - P.lastBoth < 220) {
       P.armed = false; clap(P, now);
     }
   }
 
-  // Dust off: palms close together, rubbing back and forth ACROSS each other (not toward each
-  // other, which is squeeze or clap). Three strokes in a row (back, forth, back) resets.
-  if (settings.dust && both) {
-    const lx = B.palm.x - A.palm.x, ly = B.palm.y - A.palm.y, ld = Math.hypot(lx, ly) || 1;
-    const rx = A.vel.x - B.vel.x, ry = A.vel.y - B.vel.y, rs = Math.hypot(rx, ry);
-    if (now - P.strokeT > 600) { P.strokes = 0; P.lastDir = null; }
-    if (ld / avgS < 2.8 && rs / H > 0.45) {
-      const dir = { x: rx / rs, y: ry / rs };
-      const across = Math.abs(dir.x * lx / ld + dir.y * ly / ld) < 0.75;   // within ~40° of perpendicular
-      if (across) {
-        if (!P.lastDir) { P.strokes = 1; P.lastDir = dir; }
-        else if (dir.x * P.lastDir.x + dir.y * P.lastDir.y < -0.5) {
-          P.strokes++; P.lastDir = dir;
-          if (P.strokes >= 3) triggerReset(P, 'dust off');
-        }
-        P.strokeT = now;
-      }
+  // Wipe: one open hand, palm to the camera, swept side to side like wiping a whiteboard. Four quick
+  // strokes (three changes of direction) reset. Palm-to-camera is the webcam's easiest view, unlike the
+  // side-on palms that clapping and dusting off need.
+  if (settings.dust) for (const t of [A, B]) {
+    const W_ = t.wipe || (t.wipe = { dir: 0, n: 0, at: 0 });
+    if (!t.visible || t.gesture !== 'open' || t.grab) { W_.n = 0; W_.dir = 0; continue; }
+    if (now - W_.at > 700) { W_.n = 0; W_.dir = 0; }
+    const vx = t.vel.x / H, vy = t.vel.y / H;
+    if (Math.abs(vx) > 0.8 && Math.abs(vx) > 2 * Math.abs(vy)) {
+      const dir = Math.sign(vx);
+      if (dir !== W_.dir) { W_.n++; W_.dir = dir; W_.at = now; if (W_.n >= 4) { W_.n = 0; W_.dir = 0; triggerReset(P, 'wipe'); return; } }
+      else W_.at = now;
     }
   }
 }
 // Burst / crush: both hands change pose (fist -> open, or open -> fist) within half a second of each other,
 // each after holding the first pose for a moment. Poses flicker through 'grab' / 'none' on the way, so each
 // hand remembers when its last fist and last open streaks started and ended rather than its previous pose.
-const BURST = { holdMs: 200, gapMs: 600, syncMs: 500 };
+// A loose fist (thumb at the side) reads as 'grab', so both count as a closed hand here.
+const BURST = { holdMs: 150, gapMs: 700, syncMs: 600 };
+const burstPose = g => g === 'fist' || g === 'grab' ? 'fist' : g === 'open' ? 'open' : null;
 function poseLog(t, now) {
   let L = t.poseLog;
   // A hand that dropped out of view starts fresh, so an old fist can't pair with a new open hand.
   if (!L || now - L.seen > 250) L = t.poseLog = { fist: { start: -1e9, end: -1e9 }, open: { start: -1e9, end: -1e9 }, last: null };
   L.seen = now;
-  for (const k of ['fist', 'open']) if (t.gesture === k) { if (L.last !== k) L[k].start = now; L[k].end = now; }
-  if (t.gesture === 'fist' || t.gesture === 'open') L.last = t.gesture;
+  const g = burstPose(t.gesture);
+  if (g) { if (L.last !== g) L[g].start = now; L[g].end = now; L.last = g; }
   return L;
 }
 function burstStep(P, A, B, now) {
   const la = poseLog(A, now), lb = poseLog(B, now);
   const changed = (L, from, to) => L[to].start >= L[from].end - 34 && L[to].start - L[from].end < BURST.gapMs && L[from].end - L[from].start >= BURST.holdMs;
   for (const [from, to, v, why] of [['fist', 'open', 1, 'fists burst open'], ['open', 'fist', 0, 'hands closed to fists']]) {
-    if (A.gesture !== to || B.gesture !== to) continue;
+    if (burstPose(A.gesture) !== to || burstPose(B.gesture) !== to) continue;
     if (!changed(la, from, to) || !changed(lb, from, to)) continue;
     const at = Math.max(la[to].start, lb[to].start);
     if (Math.abs(la[to].start - lb[to].start) > BURST.syncMs || P.burstAt === at) continue;
@@ -1445,7 +1453,7 @@ function burstStep(P, A, B, now) {
   }
 }
 function clap(P, now) {
-  P.claps = P.claps.filter(t => now - t < 900);
+  P.claps = P.claps.filter(t => now - t < 1200);
   P.claps.push(now);
   if (P.claps.length >= 2) triggerReset(P, 'double clap');
   else showToast('Clap · once more to reset', 900);
@@ -2128,11 +2136,12 @@ const STEPS = [
     body: 'Clap twice, quickly. The camera returns to eye level and every object glides home, upright and full size.',
     setup: messy,
     R: sidePair([[0, 1.6, -.5], [.6, 1.4, -.5], [.85, .12, -.5], [1.1, 1, -.5], [1.35, .12, -.5], [1.7, 1.4, -.5], [3.8, 1.6, -.5]], 'side') },
-  { key: '', title: 'Dust off to reset', dur: 3.8,
-    body: 'Brush your palms past each other a few times, like dusting off your hands or a dealer finishing a hand. Same reset as the double clap.',
+  { key: 'O', title: 'Wipe to reset', dur: 3.6,
+    body: 'Hold an open hand up, palm to the camera, and wipe side to side a few times, like clearing a whiteboard. Same reset as the double clap.',
     setup: messy,
-    R: sidePair([[0, .9, -.3], [.7, .25, -.3], [.95, .25, .45], [1.2, .25, -.45], [1.45, .25, .45], [1.7, .25, -.45], [2.2, .9, -.3], [3.8, .9, -.3]], 'side'),
-    L: sidePair([[0, -.9, -.3], [.7, -.35, 0], [2.2, -.9, -.3], [3.8, -.9, -.3]], 'side') },
+    R: [{ t: 0, at: [1.8, -.6], p: 'open' }, { t: .7, at: [1.6, .4], p: 'open' }, { t: 1, at: [-.4, .4], p: 'open' },
+        { t: 1.3, at: [1.6, .4], p: 'open' }, { t: 1.6, at: [-.4, .4], p: 'open' }, { t: 1.9, at: [1.6, .4], p: 'open' },
+        { t: 2.6, at: [1.8, -.6], p: 'open' }, { t: 3.6, at: [1.8, -.6], p: 'open' }] },
   { key: 'P O', title: 'Burst to explode', dur: 5.2,
     body: 'On a loaded model: make two fists, then burst both hands open and the model flies apart into its pieces. Close both open hands into fists to pull it back together. B on the keyboard does the same.',
     R: [{ t: 0, at: [1.8, -1.2], p: 'open' }, { t: .7, at: [.7, -.1], p: 'open' }, { t: .9, at: [.7, -.1], p: 'fist' },
@@ -2172,7 +2181,7 @@ for (const s of STEPS) if (s.R && !s.L && (s.R[0].palm || s.title === 'Pinch to 
 // Which gesture set each demo belongs to; the tutorial plays the active set's steps.
 const STEP_SET = { 'Poke': 'spin', 'Pinch to grab': 'grab', 'Push and pull': 'grab', 'Grab': 'grab', 'Twist to rotate': 'grab',
   'Fist to spin': 'spin', 'Open hand swipe': 'spin', 'Thumbs up': 'spin', 'Two hands': 'grab', 'Crane': 'navigate',
-  'Pinch to stretch': 'navigate', 'Double clap to reset': 'navigate', 'Dust off to reset': 'navigate', 'Burst to explode': 'navigate',
+  'Pinch to stretch': 'navigate', 'Double clap to reset': 'navigate', 'Wipe to reset': 'navigate', 'Burst to explode': 'navigate',
   'Finger gun: lock on': 'pointer', 'Send it': 'pointer', 'Summon': 'pointer', 'Remote grab': 'pointer' };
 for (const s of STEPS) s.set = STEP_SET[s.title];
 // What "done" means for each step on the learner's turn. Events come from the actions themselves (tutEmit);
@@ -2192,7 +2201,7 @@ const GOALS = {
   'Crane':                { hint: 'Hold a thumbs up or thumbs down to move the camera.', check: (o, b) => Math.abs(camTarget.y - b.camY) > 1, done: 'You craned the camera.' },
   'Pinch to stretch':     { hint: 'Pinch both sides of the cube and pull your hands apart (or together).', check: (o, b) => Math.abs(o.scale.x / b.s - 1) > 0.25, done: 'You resized it.' },
   'Double clap to reset': { hint: 'Clap twice, quickly.', ev: ['reset:double clap'], done: 'Everything reset.' },
-  'Dust off to reset':    { hint: 'Brush your palms past each other a few times.', ev: ['reset:dust off'], done: 'Dusted off and reset.' },
+  'Wipe to reset':        { hint: 'Open hand, palm to the camera: wipe side to side a few times.', ev: ['reset:wipe'], done: 'Wiped clean and reset.' },
   'Burst to explode':     { hint: 'Make two fists, then burst both hands open.', ev: ['burst'], done: 'That\'s the explode gesture. On a loaded model the parts fly apart.' },
   'Finger gun: lock on':  { hint: 'Aim the finger gun at the cube and drop your thumb to fire.', ev: ['lock'], done: 'Locked on.' },
   'Send it':              { hint: 'Lock onto the cube, then fire at the floor or a spot in the air.', ev: ['send'], done: 'Sent.' },
