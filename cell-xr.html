@@ -608,6 +608,7 @@ resize();
 /* ---------- objects ---------- */
 const objects = [];
 let selected = null;
+let focusedPart = -1;
 const FACES = [['#e98a5c', '+X'], ['#c96a45', '−X'], ['#6cc0b2', '+Y'], ['#4b9a8f', '−Y'], ['#ecc878', '+Z'], ['#c9a556', '−Z']];
 
 function faceTexture(bg, label) {
@@ -2524,15 +2525,37 @@ const modelSettings = { fast: true, cut: 0, explode: 0, explodeTarget: 0 };
 // Done in the vertex shader from a per-vertex 'pieceCenter' attribute, so the merged model keeps its ~20 draw calls.
 const EXPLODE_K = 1.4;                        // at 100%, a piece moves 1.4x its distance from the centre
 const explodeU = { value: 0 };
+const focusPartU = { value: -1.0 };           // -1 = no focus; N = focused part index
 function setupExplode(m) {
   m.onBeforeCompile = sh => {
     sh.uniforms.uExplode = explodeU;
+    sh.uniforms.uFocusPart = focusPartU;
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 pieceCenter;\nuniform float uExplode;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed += pieceCenter * uExplode;');
+      .replace('#include <common>',
+        '#include <common>\nattribute vec3 pieceCenter;\nuniform float uExplode;\nattribute float partIndex;\nvarying float vPartIndex;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\ntransformed += pieceCenter * uExplode;\nvPartIndex = partIndex;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>',
+        '#include <common>\nuniform float uFocusPart;\nvarying float vPartIndex;')
+      .replace('#include <output_fragment>',
+        '#include <output_fragment>\nif (uFocusPart >= 0.0) { bool ghost = vPartIndex < -0.5 || abs(vPartIndex - uFocusPart) > 0.5; if (ghost) gl_FragColor.rgb *= 0.08; }');
   };
   m.customProgramCacheKey = () => 'explode';
   m.needsUpdate = true;
+}
+function focusPart(idx) {
+  const group = objects.find(o => o.userData.complex);
+  if (!group) return;
+  const parts = group.userData.parts || [];
+  if (!parts.length) return;
+  focusedPart = ((idx % parts.length) + parts.length) % parts.length;
+  focusPartU.value = focusedPart;
+  showToast(parts[focusedPart]?.name || '', 1800);
+}
+function exitPartsFocus() {
+  focusedPart = -1;
+  focusPartU.value = -1.0;
 }
 function setExplode(v, why) {
   const had = objects.some(o => o.userData.complex);
@@ -2590,7 +2613,7 @@ function mergeByMaterial(root) {
     const part = partOf(o, parts);
     if (part) part.meshes++;
     // Fresh userData: clones of a shared geometry (compressed files reuse one ribosome mesh) share it otherwise.
-    g.userData = { pieceCenter: part ? part.center.clone() : g.boundingBox.getCenter(new THREE.Vector3()) };
+    g.userData = { pieceCenter: part ? part.center.clone() : g.boundingBox.getCenter(new THREE.Vector3()), partIndex: part ? parts.indexOf(part) : -1 };
     const mat = Array.isArray(o.material) ? o.material[0] : o.material;
     if (!groups.has(mat)) groups.set(mat, []);
     groups.get(mat).push(g);
@@ -2603,10 +2626,12 @@ function mergeByMaterial(root) {
       for (const n of Object.keys(g.attributes)) if (!common.includes(n)) g.deleteAttribute(n);
       g.morphAttributes = {};
       if (!g.attributes.normal) g.computeVertexNormals();
-      // Every vertex carries its piece's centre, for the explode view.
+      // Every vertex carries its piece's centre (for explode) and its part index (for focus ghosting).
       const pc = g.userData.pieceCenter, n = g.attributes.position.count, a = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) { a[i * 3] = pc.x; a[i * 3 + 1] = pc.y; a[i * 3 + 2] = pc.z; }
       g.setAttribute('pieceCenter', new THREE.BufferAttribute(a, 3));
+      const pa = new Float32Array(n); pa.fill(g.userData.partIndex);
+      g.setAttribute('partIndex', new THREE.BufferAttribute(pa, 1));
       if (!g.index) {
         const c = g.attributes.position.count, idx = new Uint32Array(c);
         for (let i = 0; i < c; i++) idx[i] = i;
@@ -2660,9 +2685,10 @@ function addModel(gltf, name) {
   // Tilt toward the viewer so open / cut-away models (like the half cell) face you; this is also its rest pose.
   group.rotation.set(0.75, -0.35, 0);
   const radius = sphere.radius + sphere.center.length();
+  focusedPart = -1; focusPartU.value = -1.0;
   group.userData = { type: 'model', complex: true, name, radius, baseRadius: radius, angVel: new THREE.Vector3(),
     grabbedBy: null, spinBy: null, two: null, glow: 0, homing: false, rest: group.quaternion.clone(), home: new THREE.Vector3(),
-    halfH: (bounds.max.y - bounds.min.y) / 2, flight: null, materials: mats };
+    halfH: (bounds.max.y - bounds.min.y) / 2, flight: null, materials: mats, parts };
   scene.add(group); objects.push(group); select(group);
   mats.forEach(setupExplode);
   modelSettings.explode = modelSettings.explodeTarget = 0; setExplode(0);
@@ -3048,8 +3074,15 @@ $('#tutExit').addEventListener('click', tutExit);
 addEventListener('keydown', e => {
   if (e.target.closest('input')) return;
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
-  if (e.key === 'Tab' && !tut.on) { e.preventDefault(); cycleSelection(e.shiftKey ? -1 : 1); return; }
+  if (e.key === 'Tab' && !tut.on) {
+    e.preventDefault();
+    const g = objects.find(o => o.userData.complex), pts = g?.userData.parts || [];
+    if (pts.length) focusPart(focusedPart < 0 ? 0 : focusedPart + (e.shiftKey ? -1 : 1));
+    else cycleSelection(e.shiftKey ? -1 : 1);
+    return;
+  }
   if (e.key === ' ' && !tut.on && !e.repeat) { e.preventDefault(); menu.open ? closeMenu() : openMenu(mouse); return; }
+  if (e.key === 'Escape' && focusedPart >= 0) { exitPartsFocus(); return; }
   if (e.key === 'Escape' && menu.open) { closeMenu(); return; }
   if (tut.on) {
     if (e.key === 'ArrowRight') { tutGo(tut.i + 1); setTurn(true); return; }
