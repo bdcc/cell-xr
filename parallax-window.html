@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Parallax Window</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Layout: the whole viewport is the "window" into a box room behind the screen; small HUD top-left,
+     collapsible calibration panel right, debug camera preview bottom-left, full-screen toggle bottom-right. */
+  :root {
+    --ink: #0b1216;
+    --panel: rgba(13, 21, 26, 0.86);
+    --line: rgba(150, 196, 205, 0.16);
+    --text: #e4ecee;
+    --muted: #8ea2a7;
+    --accent: #6ef0c6;
+    --warm: #ffb04a;
+    --warn: #ff7a6b;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--ink); color: var(--text); font: 14px/1.45 var(--display); overflow: hidden; }
+  [hidden] { display: none !important; }
+  #gl { position: fixed; inset: 0; display: block; }
+
+  .hud { position: fixed; z-index: 5; top: max(16px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); display: grid; gap: 6px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+  .brand span { font: 500 11px var(--mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  #status { font: 12px var(--mono); color: var(--muted); }
+  #status.err { color: var(--warn); }
+  .readout { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font: 500 11px var(--mono); letter-spacing: .04em; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.live { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+  .panel { position: fixed; z-index: 5; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right));
+    width: 292px; max-height: calc(100% - 96px); overflow: auto; background: var(--panel);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px; display: grid; gap: 16px; }
+  .panel-head { display: flex; justify-content: flex-end; margin-bottom: -10px; }
+  .panel-head button { font: 500 11px var(--mono); color: var(--muted); background: none; border: 0; cursor: pointer; padding: 2px 4px; }
+  .panel-head button:hover { color: var(--accent); }
+  .panel section { display: grid; gap: 8px; }
+  .panel h2 { margin: 0; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .help { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .range { display: grid; gap: 4px; }
+  .range label { display: flex; justify-content: space-between; font-size: 13px; }
+  .range output { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .range input { width: 100%; accent-color: var(--accent); margin: 0; }
+  .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 13.5px; }
+  .toggle input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg.two { grid-template-columns: 1fr 1fr; }
+  .seg button { font: 500 12px var(--mono); padding: 7px 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; border-right: 1px solid var(--line); }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .btn { font: 500 13px var(--display); padding: 8px 10px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--text); }
+  .btn:hover { background: rgba(255,255,255,.09); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Calibration: a card outline drawn at the current px-per-cm; resize it until a real card covers it */
+  .card-cal { position: relative; border: 2px dashed var(--warm); border-radius: 10px; margin: 2px auto 0; display: grid; place-items: center; }
+  .card-cal span { font: 500 10.5px var(--mono); color: var(--warm); text-align: center; padding: 4px; }
+
+  #pip { position: fixed; z-index: 4; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+    width: 240px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  #pip video { display: block; width: 100%; transform: scaleX(-1); filter: saturate(.8) brightness(.85); }
+  #pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  .corner-btn { position: fixed; z-index: 7; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
+    width: 40px; height: 40px; display: grid; place-items: center; border-radius: 8px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); color: var(--text); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .corner-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .corner-btn svg { width: 18px; height: 18px; }
+  #panelShow { display: none; position: fixed; z-index: 6; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); }
+  body.collapsed .panel { display: none; }
+  body.collapsed #panelShow { display: block; }
+
+  .toast { position: fixed; z-index: 8; left: 50%; transform: translateX(-50%); top: max(18px, env(safe-area-inset-top));
+    font: 600 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 8px 14px; border-radius: 999px;
+    color: #08231a; background: var(--accent); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+
+  .gate { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: rgba(7, 12, 15, .74); backdrop-filter: blur(6px);
+    padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  .gate .card { width: min(460px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 26px; display: grid; gap: 14px; }
+  .gate h2 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-wrap: balance; }
+  .gate p { margin: 0; color: var(--muted); }
+  .gate .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .gate .primary { background: var(--accent); color: #08231a; border-color: transparent; font-weight: 700; padding: 10px 16px; }
+  .gate .fine { font: 11.5px var(--mono); }
+  @media (max-width: 720px) { .panel { width: auto; left: max(16px, env(safe-area-inset-left)); top: auto; bottom: 64px; max-height: 55%; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="hud">
+  <div class="brand"><h1>Parallax Window</h1><span>head-tracked perspective</span></div>
+  <div id="status">Mouse mode · move the pointer to look around</div>
+  <div class="readout">
+    <span class="chip" id="chipSrc">Mouse</span>
+    <span class="chip">x <b id="hx">0.0</b></span>
+    <span class="chip">y <b id="hy">0.0</b></span>
+    <span class="chip">z <b id="hz">60</b> cm</span>
+  </div>
+</div>
+
+<button class="btn" id="panelShow" title="Show the panel (C)">Calibrate</button>
+<aside class="panel" id="panel">
+  <div class="panel-head"><button id="btnHide" title="Hide the panel (C)">Hide · C</button></div>
+  <section>
+    <h2>Screen size</h2>
+    <p class="help">Hold a bank card against the screen and resize the outline until it matches the card exactly.</p>
+    <div class="card-cal" id="cardCal"><span>8.56 × 5.40 cm<br>card outline</span></div>
+    <div class="range">
+      <label for="r-ppc">Pixels per cm <output id="o-ppc">40.0</output></label>
+      <input type="range" id="r-ppc" min="20" max="90" step="0.1" value="40">
+    </div>
+  </section>
+  <section>
+    <h2>Camera</h2>
+    <div class="range">
+      <label for="r-fov">Webcam horizontal field of view <output id="o-fov">65°</output></label>
+      <input type="range" id="r-fov" min="40" max="100" step="1" value="65">
+    </div>
+    <div class="range">
+      <label for="r-ipd">Your pupil distance <output id="o-ipd">6.3 cm</output></label>
+      <input type="range" id="r-ipd" min="5.2" max="7.6" step="0.05" value="6.3">
+    </div>
+    <label class="toggle"><input type="checkbox" id="t-auto" checked>Built-in camera, top centre of this display</label>
+    <div class="range" id="manualCam" hidden>
+      <label for="r-camx">Camera offset across <output id="o-camx">0 cm</output></label>
+      <input type="range" id="r-camx" min="-40" max="40" step="0.5" value="0">
+      <label for="r-camy">Camera height above window centre <output id="o-camy">18 cm</output></label>
+      <input type="range" id="r-camy" min="-10" max="60" step="0.5" value="18">
+    </div>
+    <p class="help">Check: sit about an arm's length away and the z reading should be roughly 55–70 cm. If it's off, adjust the field of view.</p>
+  </section>
+  <section>
+    <h2>Effect</h2>
+    <div class="range">
+      <label for="r-gain">Parallax strength <output id="o-gain">1.0×</output></label>
+      <input type="range" id="r-gain" min="0.5" max="2.5" step="0.1" value="1">
+    </div>
+    <div class="range">
+      <label for="r-depth">Room depth <output id="o-depth">60 cm</output></label>
+      <input type="range" id="r-depth" min="20" max="150" step="5" value="60">
+    </div>
+    <div class="range">
+      <label for="r-smooth">Smoothing <output id="o-smooth">medium</output></label>
+      <input type="range" id="r-smooth" min="0.2" max="3" step="0.1" value="1">
+    </div>
+    <label class="toggle"><input type="checkbox" id="t-pop" checked>Targets that pop out of the screen</label>
+    <label class="toggle"><input type="checkbox" id="t-strings" checked>Strings to the back wall</label>
+  </section>
+  <section>
+    <h2>View</h2>
+    <div class="seg two" role="group" aria-label="Camera preview">
+      <button data-pip="window" aria-pressed="true">Preview on</button>
+      <button data-pip="off" aria-pressed="false">Preview off</button>
+    </div>
+    <div class="btns"><button class="btn" id="btnCam">Start camera</button><button class="btn" id="btnCenter">Reset view</button></div>
+    <p class="help">Close one eye for the strongest depth. Full screen (bottom-right) gives the cleanest window.</p>
+  </section>
+</aside>
+
+<div id="pip" hidden><video id="video" playsinline muted></video><canvas id="pipCanvas" width="240" height="135"></canvas></div>
+<button class="corner-btn" id="btnFull" aria-label="Enter full screen" title="Full screen (Esc to exit)">
+  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path id="fullIcon" d="M2 6V2h4M12 2h4v4M16 12v4h-4M6 16H2v-4"/></svg>
+</button>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<div class="gate" id="gate">
+  <div class="card">
+    <h2>Look through your screen</h2>
+    <p>Your webcam tracks your eyes, and the picture is redrawn from exactly where you sit, so the monitor behaves like a window into a room behind it. Lean, duck and move closer to look around the targets.</p>
+    <div class="row">
+      <button class="btn primary" id="btnStart">Start camera</button>
+      <button class="btn" id="btnMouse">Try with the mouse</button>
+    </div>
+    <p class="fine">Video never leaves your device; face tracking runs locally (MediaPipe). Calibrate the screen size once in the panel for true-to-scale depth.</p>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+const TASKS_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const IRIS_L = 468, IRIS_R = 473;      // iris centres in the 478-point face mesh
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+const load = (k, d) => { try { const v = localStorage.getItem('pw.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } };
+const save = (k, v) => { try { localStorage.setItem('pw.' + k, JSON.stringify(v)); } catch {} };
+const settings = {
+  ppc: load('ppc', 40), fov: load('fov', 65), ipd: load('ipd', 6.3), auto: load('auto', true),
+  camx: load('camx', 0), camy: load('camy', 18), gain: 1, depth: 60, smooth: 1, pop: true, strings: true, pip: 'window',
+};
+
+/* ---------- renderer and scene (world units = centimetres; the screen is the plane z = 0, centred on the origin) ---------- */
+const canvas = $('#gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1216);
+const camera = new THREE.PerspectiveCamera();
+camera.matrixAutoUpdate = true;
+
+const hemi = new THREE.HemisphereLight(0xdff7ff, 0x0b1216, 0.55);
+const key = new THREE.DirectionalLight(0xffffff, 1.6);
+key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0005;
+scene.add(hemi, key, key.target);
+
+let room = null, targets = [];
+const screenCm = () => ({ w: innerWidth / settings.ppc, h: innerHeight / settings.ppc });
+
+// Builds the box room behind the glass: walls with a centimetre grid, depth rings every 5 cm, and the targets.
+function buildRoom() {
+  if (room) { scene.remove(room); room.traverse(o => { o.geometry?.dispose(); [].concat(o.material || []).forEach(m => m.dispose()); }); }
+  room = new THREE.Group(); targets = [];
+  const { w, h } = screenCm(), D = settings.depth;
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x14232a, roughness: .95 });
+  const wall = (geo, pos, rot) => { const m = new THREE.Mesh(geo, wallMat); m.position.copy(pos); m.rotation.set(...rot); m.receiveShadow = true; room.add(m); };
+  wall(new THREE.PlaneGeometry(w, h), new THREE.Vector3(0, 0, -D), [0, 0, 0]);                       // back
+  wall(new THREE.PlaneGeometry(w, D), new THREE.Vector3(0, -h / 2, -D / 2), [-Math.PI / 2, 0, 0]);  // floor
+  wall(new THREE.PlaneGeometry(w, D), new THREE.Vector3(0, h / 2, -D / 2), [Math.PI / 2, 0, 0]);    // ceiling
+  wall(new THREE.PlaneGeometry(D, h), new THREE.Vector3(-w / 2, 0, -D / 2), [0, Math.PI / 2, 0]);   // left
+  wall(new THREE.PlaneGeometry(D, h), new THREE.Vector3(w / 2, 0, -D / 2), [0, -Math.PI / 2, 0]);   // right
+
+  // Grid lines, brighter near the glass and fading with depth
+  const pos = [], col = [], near = new THREE.Color(0x6ef0c6), far = new THREE.Color(0x173a36);
+  const seg = (a, b) => { pos.push(...a, ...b); const ca = near.clone().lerp(far, -a[2] / D), cb = near.clone().lerp(far, -b[2] / D); col.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b); };
+  const x0 = -w / 2, x1 = w / 2, y0 = -h / 2, y1 = h / 2, e = 0.02;
+  for (let d = 0; d <= D + 1e-6; d += 5) { const z = -d;   // depth rings
+    seg([x0 + e, y0 + e, z], [x1 - e, y0 + e, z]); seg([x0 + e, y1 - e, z], [x1 - e, y1 - e, z]);
+    seg([x0 + e, y0 + e, z], [x0 + e, y1 - e, z]); seg([x1 - e, y0 + e, z], [x1 - e, y1 - e, z]); }
+  for (let x = Math.ceil(x0 / 5) * 5; x <= x1; x += 5) { seg([x, y0 + e, 0], [x, y0 + e, -D]); seg([x, y1 - e, 0], [x, y1 - e, -D]); seg([x, y0, -D + e], [x, y1, -D + e]); }
+  for (let y = Math.ceil(y0 / 5) * 5; y <= y1; y += 5) { seg([x0 + e, y, 0], [x0 + e, y, -D]); seg([x1 - e, y, 0], [x1 - e, y, -D]); seg([x0, y, -D + e], [x1, y, -D + e]); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  room.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .85 })));
+
+  // Targets, placed as fractions of the window so any screen size works; z > 0 sits in front of the glass
+  const R = Math.min(w, h) * 0.06;
+  const spots = [[-.55, .45, -.75], [.5, -.35, -.35], [.05, .2, -.95], [.7, .55, -.6], [-.65, -.55, -.15], [-.2, -.25, -.5],
+    [.25, .1, 0.12, true], [-.35, .3, 0.2, true]];
+  for (const [fx, fy, fz, pop] of spots) {
+    const t = makeTarget(R * (pop ? .8 : 1));
+    t.position.set(fx * w / 2 * .8, fy * h / 2 * .8, pop ? fz * 60 : fz * D);
+    t.userData = { base: t.position.clone(), pop: !!pop, phase: Math.random() * 6 };
+    room.add(t); targets.push(t);
+    const s = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xbfd6da, transparent: true, opacity: .55 }));
+    s.frustumCulled = false; t.userData.string = s; room.add(s);
+  }
+  key.position.set(w * .2, h * .9, 70); key.target.position.set(0, 0, -D / 2);
+  const sc = key.shadow.camera; sc.left = -w; sc.right = w; sc.top = h; sc.bottom = -h; sc.near = 1; sc.far = 300; sc.updateProjectionMatrix();
+  scene.add(room);
+  applyToggles();
+}
+function makeTarget(r) {
+  const g = new THREE.Group();
+  const cols = [0xf2efe8, 0xd9483b, 0xf2efe8, 0xd9483b, 0xf2efe8];
+  cols.forEach((c, i) => {
+    const outer = r * (1 - i / cols.length), inner = r * (1 - (i + 1) / cols.length);
+    const m = new THREE.Mesh(inner > 0 ? new THREE.RingGeometry(inner, outer, 48) : new THREE.CircleGeometry(outer, 48),
+      new THREE.MeshStandardMaterial({ color: c, roughness: .6, side: THREE.DoubleSide }));
+    m.position.z = i * 0.02; m.castShadow = true; g.add(m);
+  });
+  const back = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * .12, 48), new THREE.MeshStandardMaterial({ color: 0x2a3438, roughness: .8 }));
+  back.rotation.x = Math.PI / 2; back.position.z = -r * .07; back.castShadow = true; g.add(back);
+  return g;
+}
+function applyToggles() {
+  for (const t of targets) { t.visible = !t.userData.pop || settings.pop; t.userData.string.visible = t.visible && settings.strings; }
+}
+
+/* ---------- off-axis projection: the screen rectangle is the window, the eye is the camera ---------- */
+const eye = new THREE.Vector3(0, 0, 60);
+function updateProjection() {
+  const { w, h } = screenCm(), n = 1, f = 1000;
+  const ez = Math.max(eye.z, 8);
+  const l = (-w / 2 - eye.x) * n / ez, r = (w / 2 - eye.x) * n / ez;
+  const b = (-h / 2 - eye.y) * n / ez, t = (h / 2 - eye.y) * n / ez;
+  camera.position.set(eye.x, eye.y, ez);
+  camera.quaternion.identity();                     // always faces straight into the screen; only the frustum skews
+  camera.updateMatrixWorld();
+  camera.projectionMatrix.makePerspective(l, r, t, b, n, f);
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+}
+
+/* ---------- head position ---------- */
+// One Euro filter: smooth when you're still, responsive when you move.
+class OneEuro {
+  constructor(minCutoff = 1, beta = 0.03, dCutoff = 1) { Object.assign(this, { minCutoff, beta, dCutoff, x: null, dx: 0, t: 0 }); }
+  a(cutoff, dt) { const tau = 1 / (2 * Math.PI * cutoff); return 1 / (1 + tau / dt); }
+  filter(v, t) {
+    if (this.x === null) { this.x = v; this.t = t; return v; }
+    const dt = Math.max(1e-3, (t - this.t) / 1000); this.t = t;
+    const d = (v - this.x) / dt; this.dx += this.a(this.dCutoff, dt) * (d - this.dx);
+    const cutoff = this.minCutoff + this.beta * Math.abs(this.dx);
+    this.x += this.a(cutoff, dt) * (v - this.x); return this.x;
+  }
+}
+const filters = { x: new OneEuro(), y: new OneEuro(), z: new OneEuro() };
+const setSmoothing = v => { for (const f of Object.values(filters)) f.minCutoff = v; };
+
+// Where the webcam sits relative to the centre of this browser window, in cm (x right, y up).
+function cameraOffset() {
+  if (!settings.auto) return { x: settings.camx, y: settings.camy };
+  const vpLeft = window.screenX + (window.outerWidth - window.innerWidth);
+  const vpTop = window.screenY + (window.outerHeight - window.innerHeight);
+  const p = settings.ppc;
+  return { x: (screen.width / 2 - (vpLeft + innerWidth / 2)) / p, y: (vpTop + innerHeight / 2) / p + 0.8 };
+}
+
+let source = 'mouse', lastFace = 0, faceDbg = null;
+const mouse = { x: innerWidth / 2, y: innerHeight / 2 };
+addEventListener('pointermove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+function headFromMouse(now) {
+  const { w, h } = screenCm();
+  return { x: (mouse.x / innerWidth - .5) * w * 1.1, y: -(mouse.y / innerHeight - .5) * h * 1.1, z: 60 };
+}
+function headFromFace(res) {
+  const lm = res.faceLandmarks?.[0];
+  if (!lm) return null;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const L = lm[IRIS_L], Rr = lm[IRIS_R];
+  const lx = L.x * vw, ly = L.y * vh, rx = Rr.x * vw, ry = Rr.y * vh;
+  const dpx = Math.hypot(rx - lx, ry - ly);
+  if (dpx < 4) return null;
+  const fpx = (vw / 2) / Math.tan(THREE.MathUtils.degToRad(settings.fov / 2));   // focal length in pixels
+  const z = fpx * settings.ipd / dpx;                                               // distance from similar triangles
+  const cx = (lx + rx) / 2, cy = (ly + ry) / 2;
+  const cam = cameraOffset();
+  faceDbg = { L, R: Rr };
+  // The raw camera image is not mirrored: moving to your right moves you left in the image.
+  return { x: cam.x - (cx - vw / 2) * z / fpx, y: cam.y - (cy - vh / 2) * z / fpx, z };
+}
+
+/* ---------- camera + face model ---------- */
+const video = $('#video');
+let landmarker = null, stream = null, lastVideoTime = -1;
+const statusEl = $('#status');
+const setStatus = (m, err = false) => { statusEl.textContent = m; statusEl.classList.toggle('err', err); };
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) { setStatus('This browser cannot open a camera here. Serve the page from localhost or https.', true); return; }
+  setStatus('Requesting camera and loading face model…');
+  try {
+    const vision = await import(`${TASKS_URL}/vision_bundle.mjs`);
+    const [s, fileset] = await Promise.all([
+      navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false }),
+      vision.FilesetResolver.forVisionTasks(`${TASKS_URL}/wasm`),
+    ]);
+    const opts = d => ({ baseOptions: { modelAssetPath: FACE_MODEL, delegate: d }, runningMode: 'VIDEO', numFaces: 1,
+      minFaceDetectionConfidence: .5, minFacePresenceConfidence: .5, minTrackingConfidence: .5 });
+    try { landmarker = await vision.FaceLandmarker.createFromOptions(fileset, opts('GPU')); }
+    catch { landmarker = await vision.FaceLandmarker.createFromOptions(fileset, opts('CPU')); }
+    stream = s; video.srcObject = s; await video.play();
+    source = 'face'; applyPip();
+    $('#btnCam').textContent = 'Stop camera';
+    setStatus('Tracking your eyes · lean and move to look around');
+  } catch (err) {
+    const blocked = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    setStatus(blocked ? 'Camera access was blocked. Allow the camera for this page in your browser settings, then press Start camera.'
+      : `Could not start face tracking (${err?.message || err}). Check your connection and try again.`, true);
+  }
+}
+function stopCamera() {
+  stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null;
+  source = 'mouse'; applyPip(); $('#btnCam').textContent = 'Start camera';
+  setStatus('Mouse mode · move the pointer to look around');
+}
+
+/* ---------- debug preview ---------- */
+const pip = $('#pip'), pipCanvas = $('#pipCanvas'), pctx = pipCanvas.getContext('2d');
+function applyPip() {
+  pip.hidden = settings.pip !== 'window' || !stream;
+  document.querySelectorAll('[data-pip]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.pip === settings.pip)));
+}
+function drawPip() {
+  if (pip.hidden || !video.videoWidth) return;
+  const w = pipCanvas.width = 240, h = pipCanvas.height = Math.round(240 * video.videoHeight / video.videoWidth);
+  pctx.clearRect(0, 0, w, h);
+  if (!faceDbg || performance.now() - lastFace > 300) return;
+  pctx.fillStyle = '#6ef0c6';
+  for (const p of [faceDbg.L, faceDbg.R]) { pctx.beginPath(); pctx.arc((1 - p.x) * w, p.y * h, 3.5, 0, Math.PI * 2); pctx.fill(); }
+}
+
+/* ---------- loop ---------- */
+const hx = $('#hx'), hy = $('#hy'), hz = $('#hz'), chipSrc = $('#chipSrc');
+function frame() {
+  requestAnimationFrame(frame);
+  const now = performance.now();
+  let raw = null;
+  if (source === 'face' && landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    raw = headFromFace(landmarker.detectForVideo(video, now));
+    if (raw) lastFace = now;
+  }
+  if (source === 'mouse') raw = headFromMouse(now);
+  if (raw) {
+    // Parallax strength scales sideways and vertical motion about the window centre
+    const g = settings.gain;
+    eye.set(filters.x.filter(raw.x * g, now), filters.y.filter(raw.y * g, now), filters.z.filter(clamp(raw.z, 20, 200), now));
+  }
+  const lost = source === 'face' && now - lastFace > 600;
+  chipSrc.textContent = source === 'face' ? (lost ? 'Face lost' : 'Face') : 'Mouse';
+  chipSrc.classList.toggle('live', source === 'face' && !lost);
+  hx.textContent = eye.x.toFixed(1); hy.textContent = eye.y.toFixed(1); hz.textContent = eye.z.toFixed(0);
+
+  const t = now / 1000;
+  for (const tg of targets) {
+    const u = tg.userData;
+    tg.position.y = u.base.y + Math.sin(t * .8 + u.phase) * .6;
+    u.string.geometry.setFromPoints([tg.position, new THREE.Vector3(tg.position.x * .9, tg.position.y * .9 + 2, -settings.depth + .05)]);
+  }
+  updateProjection();
+  renderer.render(scene, camera);
+  drawPip();
+}
+
+/* ---------- controls ---------- */
+const toastEl = $('#toast'); let toastT = 0;
+const toast = (m, ms = 1400) => { clearTimeout(toastT); toastEl.textContent = m; toastEl.hidden = false; toastT = setTimeout(() => { toastEl.hidden = true; }, ms); };
+function bind(id, key, fmt, after) {
+  const el = $('#r-' + id), out = $('#o-' + id);
+  const sync = () => { settings[key] = +el.value; out.textContent = fmt(+el.value); after?.(); };
+  el.value = settings[key]; el.addEventListener('input', () => { sync(); save(key, settings[key]); }); sync();
+}
+function sizeCard() { const c = $('#cardCal'); c.style.width = `${8.56 * settings.ppc}px`; c.style.height = `${5.398 * settings.ppc}px`; }
+bind('ppc', 'ppc', v => v.toFixed(1), () => { sizeCard(); buildRoom(); });
+bind('fov', 'fov', v => `${v}°`);
+bind('ipd', 'ipd', v => `${v.toFixed(2).replace(/0$/, '')} cm`);
+bind('camx', 'camx', v => `${v} cm`);
+bind('camy', 'camy', v => `${v} cm`);
+bind('gain', 'gain', v => `${v.toFixed(1)}×`);
+bind('depth', 'depth', v => `${v} cm`, () => buildRoom());
+bind('smooth', 'smooth', v => (v < .6 ? 'heavy' : v < 1.6 ? 'medium' : 'light'), () => setSmoothing(settings.smooth));
+const autoEl = $('#t-auto');
+autoEl.checked = settings.auto; $('#manualCam').hidden = settings.auto;
+autoEl.addEventListener('change', () => { settings.auto = autoEl.checked; $('#manualCam').hidden = settings.auto; save('auto', settings.auto); });
+$('#t-pop').addEventListener('change', e => { settings.pop = e.target.checked; applyToggles(); });
+$('#t-strings').addEventListener('change', e => { settings.strings = e.target.checked; applyToggles(); });
+document.querySelectorAll('[data-pip]').forEach(b => b.addEventListener('click', () => { settings.pip = b.dataset.pip; applyPip(); }));
+$('#btnCam').addEventListener('click', () => (stream ? stopCamera() : startCamera()));
+$('#btnCenter').addEventListener('click', () => { for (const f of Object.values(filters)) f.x = null; eye.set(0, 0, 60); toast('View reset'); });
+
+const setCollapsed = on => document.body.classList.toggle('collapsed', on);
+$('#btnHide').addEventListener('click', () => setCollapsed(true));
+$('#panelShow').addEventListener('click', () => setCollapsed(false));
+let panelWas = false;
+const FULL = 'M2 6V2h4M12 2h4v4M16 12v4h-4M6 16H2v-4', EXIT = 'M6 2v4H2M16 6h-4V2M12 16v-4h4M2 12h4v4';
+$('#btnFull').addEventListener('click', async () => {
+  try { document.fullscreenElement ? await document.exitFullscreen() : await document.documentElement.requestFullscreen(); }
+  catch { toast('Full screen isn\'t available here'); }
+});
+document.addEventListener('fullscreenchange', () => {
+  const on = !!document.fullscreenElement;
+  $('#fullIcon').setAttribute('d', on ? EXIT : FULL);
+  $('#btnFull').setAttribute('aria-label', on ? 'Exit full screen' : 'Enter full screen');
+  if (on) { panelWas = document.body.classList.contains('collapsed'); setCollapsed(true); toast('Full screen · C shows the panel · Esc exits', 1800); }
+  else setCollapsed(panelWas);
+});
+addEventListener('keydown', e => {
+  if (e.target.closest('input')) return;
+  if (e.key.toLowerCase() === 'c') setCollapsed(!document.body.classList.contains('collapsed'));
+});
+$('#btnStart').addEventListener('click', () => { $('#gate').hidden = true; startCamera(); });
+$('#btnMouse').addEventListener('click', () => { $('#gate').hidden = true; });
+
+function resize() { renderer.setSize(innerWidth, innerHeight); buildRoom(); }
+addEventListener('resize', resize);
+setSmoothing(settings.smooth); sizeCard(); resize(); applyPip();
+frame();
+</script>
+</body>
+</html>

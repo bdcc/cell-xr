@@ -1,0 +1,3117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CellXR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Layout: full-bleed camera stage, floating instrument panel on the right, gesture legend along the bottom edge. */
+  :root {
+    --ink: #0d1519;
+    --panel: rgba(14, 22, 27, 0.84);
+    --line: rgba(150, 196, 205, 0.16);
+    --text: #e4ecee;
+    --muted: #8ea2a7;
+    --hand: #6ef0c6;
+    --grab: #ffb04a;
+    --warn: #ff7a6b;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--ink); color: var(--text);
+    font: 14px/1.45 var(--display); overflow: hidden;
+  }
+  #stage { position: fixed; inset: 0; }
+  #video {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1);
+    filter: saturate(.75) brightness(.62) contrast(1.05);
+  }
+  [hidden] { display: none !important; }
+  #stage::after { /* vignette keeps objects legible over busy rooms */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 45%, transparent 40%, rgba(5, 10, 12, .55) 100%);
+  }
+  #gl { position: absolute; inset: 0; z-index: 1; touch-action: none; cursor: grab; }
+  #gl:active { cursor: grabbing; }
+  /* The hand overlay sits above the panel so your hand never vanishes behind it; it never takes clicks. */
+  #overlay { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  /* Window mode: a small picture-in-picture camera preview with its own mini skeleton */
+  #video.pip {
+    inset: auto; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+    width: 256px; height: 144px; z-index: 3; border-radius: 10px; border: 1px solid var(--line);
+    filter: saturate(.85) brightness(.8); box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+  }
+  #pipCanvas {
+    position: absolute; z-index: 4; pointer-events: none;
+    left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .corner-btn {
+    position: fixed; z-index: 7; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
+    width: 40px; height: 40px; display: grid; place-items: center; border-radius: 8px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  }
+  .corner-btn:hover { color: var(--hand); border-color: var(--hand); }
+  .corner-btn svg { width: 18px; height: 18px; }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: -6px; }
+  .panel-head button { font: 500 11px var(--mono); color: var(--muted); background: none; border: 0; cursor: pointer; padding: 2px 4px; }
+  .panel-head button:hover { color: var(--hand); }
+  body.collapsed .panel { display: none; }
+  body.collapsed #panelToggle { display: block; position: fixed; z-index: 6; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); }
+
+  .hud {
+    position: fixed; z-index: 5;
+    top: max(16px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left));
+    display: grid; gap: 8px; max-width: min(360px, calc(100vw - 32px));
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+  .brand span { font: 500 11px var(--mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  #status { font: 12px var(--mono); color: var(--muted); }
+  #status.err { color: var(--warn); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .chip[data-g="pinch"] { color: var(--grab); border-color: color-mix(in srgb, var(--grab) 50%, transparent); }
+  .chip[data-g="fist"], .chip[data-g="open"] { color: var(--hand); border-color: color-mix(in srgb, var(--hand) 45%, transparent); }
+
+  .panel {
+    position: fixed; z-index: 5;
+    top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right));
+    width: 280px; max-height: calc(100% - 120px); overflow: auto;
+    background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px; display: grid; gap: 16px;
+  }
+  .panel section { display: grid; gap: 8px; }
+  .panel h2 {
+    margin: 0; font: 600 10.5px var(--mono); letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 13.5px; }
+  .toggle input { accent-color: var(--hand); width: 15px; height: 15px; margin: 0; }
+  .toggle small { color: var(--muted); font: 11px var(--mono); margin-left: auto; }
+  .seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    font: 500 12px var(--mono); padding: 7px 0; border: 0; background: transparent;
+    color: var(--muted); cursor: pointer; border-right: 1px solid var(--line);
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg.two { grid-template-columns: 1fr 1fr; }
+  .seg.three { grid-template-columns: 1fr 1fr 1fr; }
+  .seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--hand) 18%, transparent); color: var(--hand); }
+  .range { display: grid; gap: 4px; }
+  .range label { display: flex; justify-content: space-between; font-size: 13px; }
+  .range output { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .range input { width: 100%; accent-color: var(--hand); margin: 0; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .btn {
+    font: 500 13px var(--display); padding: 8px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: rgba(255, 255, 255, .04); color: var(--text);
+  }
+  .btn:hover { background: rgba(255, 255, 255, .09); }
+  .btn.quiet { color: var(--muted); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--hand); outline-offset: 2px; }
+  #panelToggle { display: none; }
+
+  .legend {
+    position: fixed; z-index: 4; left: 50%; transform: translateX(-50%);
+    bottom: max(16px, env(safe-area-inset-bottom));
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    width: min(760px, calc(100vw - 32px));
+  }
+  .legend div {
+    font: 11px var(--mono); color: var(--muted); padding: 5px 9px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+  }
+  .legend b { color: var(--text); font-weight: 600; letter-spacing: .06em; margin-right: 6px; }
+
+  .gate {
+    position: fixed; inset: 0; z-index: 10; display: grid; place-items: center;
+    background: rgba(8, 13, 16, .72); backdrop-filter: blur(6px);
+    padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right));
+  }
+  .gate .card {
+    width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 26px; display: grid; gap: 14px;
+  }
+  .gate h2 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-wrap: balance; }
+  .gate p { margin: 0; color: var(--muted); }
+  .gate .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .gate .primary { background: var(--hand); color: #08231a; border-color: transparent; font-weight: 700; padding: 10px 16px; }
+  .gate .primary:hover { background: #8ff5d4; }
+  .gate .fine { font: 11.5px var(--mono); color: var(--muted); }
+  .gate .card { max-height: calc(100dvh - 32px); overflow-y: auto; width: min(480px, 100%); }
+  .gate-about { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 6px; }
+  .gate-about h3 { margin: 0; font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .gate-about p { color: var(--text); font-size: 14px; }
+  .gate-about a { color: var(--hand); }
+  .gate-q { display: grid; gap: 8px; }
+  .gate-q > span { font-weight: 600; }
+  .gate .seg button { padding: 9px 8px; }
+
+  .sets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .sets button {
+    display: grid; gap: 1px; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: rgba(255, 255, 255, .03); color: var(--text); font: inherit;
+    position: relative;
+  }
+  .sets button b { font-size: 14px; font-weight: 700; }
+  .sets button span { font: 10.5px var(--mono); color: var(--muted); }
+  .sets button kbd { position: absolute; top: 7px; right: 8px; font: 500 10px var(--mono); color: var(--muted); }
+  .sets button[aria-pressed="true"] { border-color: var(--hand); background: color-mix(in srgb, var(--hand) 14%, transparent); }
+  .sets button[aria-pressed="true"] b, .sets button[aria-pressed="true"] kbd { color: var(--hand); }
+  .set-help { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .fine-tune summary { cursor: pointer; font: 500 11.5px var(--mono); color: var(--muted); letter-spacing: .04em; padding: 2px 0; }
+  .fine-tune[open] summary { margin-bottom: 8px; }
+  .fine-grid { display: grid; gap: 7px; }
+  .tutor-sets { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tutor-sets button {
+    font: 500 11px var(--mono); padding: 4px 9px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+  }
+  .tutor-sets button[aria-pressed="true"] { color: #08231a; background: var(--hand); border-color: transparent; }
+
+  .drop-zone { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; background: rgba(8, 13, 16, .6); pointer-events: none; }
+  .drop-zone div { font: 600 20px var(--display); color: var(--hand); padding: 28px 40px; border: 2px dashed var(--hand); border-radius: 14px; background: var(--panel); }
+  .palm-menu {
+    position: fixed; z-index: 8; display: grid; gap: 4px; padding: 6px; min-width: 168px;
+    background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  }
+  .palm-menu button {
+    text-align: left; font: 500 14px var(--display); padding: 10px 12px; border-radius: 7px; cursor: pointer;
+    border: 1px solid transparent; background: transparent; color: var(--text);
+  }
+  .palm-menu button:hover, .palm-menu button.hot { background: color-mix(in srgb, var(--hand) 18%, transparent); border-color: var(--hand); color: var(--hand); }
+
+  .toast {
+    position: fixed; z-index: 7; left: 50%; transform: translateX(-50%);
+    top: max(18px, env(safe-area-inset-top));
+    font: 600 12px var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    padding: 8px 14px; border-radius: 999px; color: #08231a; background: var(--hand);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+  }
+  .toast.reset { background: var(--grab); color: #2a1700; }
+
+  .tutor {
+    position: fixed; z-index: 6; left: 50%; transform: translateX(-50%);
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: min(560px, calc(100vw - 32px));
+    background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+    display: grid; gap: 10px;
+  }
+  .tutor-head { display: flex; align-items: center; gap: 10px; }
+  .tutor-head h3 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .tutor-count { font: 500 11px var(--mono); color: var(--muted); letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+  .tutor-key {
+    font: 600 12px var(--mono); min-width: 24px; text-align: center; padding: 2px 6px;
+    border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--hand);
+  }
+  .tutor-key:empty { display: none; }
+  .tutor p { margin: 0; color: var(--text); max-width: 62ch; }
+  .tutor-progress { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .tutor-progress i { display: block; height: 100%; width: 0; background: var(--hand); }
+  .tutor-head .btn.icon { padding: 4px 9px; min-width: 32px; }
+  .tutor-head .btn.small { padding: 4px 10px; font-size: 12.5px; }
+  .tutor-sp { flex: 1; }
+  /* Compact (default): one slim bar, so the demo and your hands stay visible. Details (⋯) shows the rest. */
+  .tutor.compact { width: auto; max-width: min(620px, calc(100vw - 32px)); padding: 8px 10px; gap: 6px; }
+  .tutor.compact .tutor-head { gap: 8px; }
+  .tutor.compact .tutor-head h3 { font-size: 17px; white-space: nowrap; }
+  .tutor.compact #tutBody, .tutor.compact #tutSets, .tutor.compact #tutCount, .tutor.compact .tutor-depth .fine { display: none; }
+  .tutor.compact .tutor-depth { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+  .tutor.compact .tutor-depth[hidden] { display: none; }
+  .tutor.compact .tutor-depth .seg { flex: 1; }
+  .tutor.compact .tutor-done, .tutor.compact .tutor-retry { padding: 6px 10px; }
+  .tutor.compact .tutor-goal { font-size: 12px; }
+  /* Targets beside the action: drag the object in, hold a hand over one, or click it. */
+  .tut-targets { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+  .tut-target { position: absolute; width: 132px; height: 132px; margin: -66px 0 0 -66px; border-radius: 50%; pointer-events: auto; cursor: pointer;
+    display: grid; place-items: center; text-align: center; color: var(--text);
+    background: radial-gradient(circle, color-mix(in srgb, var(--panel) 90%, transparent) 58%, transparent 60%),
+      conic-gradient(var(--c) calc(var(--p, 0) * 1turn), color-mix(in srgb, var(--c) 25%, transparent) 0);
+    border: 1px solid color-mix(in srgb, var(--c) 60%, transparent); }
+  .tut-target b { display: block; font: 700 18px var(--display); color: var(--c); }
+  .tut-target small { display: block; font: 500 10.5px var(--mono); color: var(--muted); margin-top: 2px; }
+  .tut-target.hot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 30%, transparent); }
+  .tutor-depth { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .tutor-depth .fine { font: 12px/1.5 var(--display); color: var(--muted); }
+  .tutor-goal { font: 500 12.5px var(--mono); color: var(--hand) !important; }
+  .tutor-goal::before { content: "◌ "; }
+  .tutor-done { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px;
+    background: color-mix(in srgb, var(--hand) 16%, transparent); border: 1px solid var(--hand); }
+  .tutor-done > span { flex: 1 1 200px; }
+  .tutor-done b { color: var(--hand); }
+  .tutor-retry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--grab); background: color-mix(in srgb, var(--grab) 12%, transparent); }
+  .tutor-retry > span { flex: 1 1 200px; }
+  body.tut-turn .tutor-progress i { background: var(--grab); }
+  .tutor-done .primary { background: var(--hand); color: #08231a; border-color: transparent; font-weight: 700; }
+  body.tutoring .legend, body.tutoring .panel, body.tutoring #panelToggle, body.tutoring #btnTutorial { display: none; }
+
+  @media (max-width: 720px) {
+    .panel { top: auto; bottom: 64px; left: max(16px, env(safe-area-inset-left)); width: auto; max-height: 55%; }
+    .panel:not(.open) { display: none; }
+    #panelToggle { display: block; position: fixed; z-index: 6; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); }
+    .legend { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted hidden></video>
+  <canvas id="pipCanvas" width="256" height="144" hidden></canvas>
+</div>
+<canvas id="overlay"></canvas>
+<button class="corner-btn" id="btnFull" aria-label="Enter full screen" title="Full screen (Esc to exit)">
+  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path id="fullIcon" d="M2 6V2h4M12 2h4v4M16 12v4h-4M6 16H2v-4"/></svg>
+</button>
+
+<div class="hud">
+  <div class="brand"><h1>CellXR</h1><span>hand-tracked viewport</span></div>
+  <div id="status">Camera off · mouse controls active</div>
+  <div class="chips">
+    <span class="chip" id="chipL" data-g="none">L · —</span>
+    <span class="chip" id="chipR" data-g="none">R · —</span>
+    <span class="chip" id="chipSet" data-g="open">Set · Grab</span>
+    <span class="chip" id="chipFps">0 fps</span>
+    <span class="chip" id="chipScore" data-g="pinch" hidden>Tags 0 · Delivered 0</span>
+  </div>
+  <div><button class="btn" id="btnTutorial">Gesture tutorial</button></div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="palm-menu" id="palmMenu" role="menu" aria-label="Palm menu" hidden></div>
+<div class="drop-zone" id="dropZone" hidden><div>Drop a .glb model to load it</div></div>
+
+<div class="tutor compact" id="tutor" hidden>
+  <div class="tutor-head">
+    <button class="btn icon" id="tutPrev" aria-label="Previous gesture" title="Previous (left arrow)">←</button>
+    <span class="tutor-key" id="tutKey">N</span>
+    <h3 id="tutTitle">Poke</h3>
+    <button class="btn icon" id="tutNext" aria-label="Next gesture" title="Next (right arrow, skips without trying)">→</button>
+    <span class="tutor-count" id="tutCount">1 / 13</span>
+    <span class="tutor-sp"></span>
+    <button class="btn small" id="tutTurn">Your turn</button>
+    <button class="btn icon" id="tutMore" aria-expanded="false" aria-controls="tutBody" title="Show the description">⋯</button>
+    <button class="btn icon" id="tutExit" aria-label="Exit tutorial" title="Exit tutorial (Esc)">✕</button>
+  </div>
+  <div class="tutor-sets" id="tutSets" role="group" aria-label="Tutorial gesture set">
+    <button data-tset="grab">Grab</button><button data-tset="spin">Spin</button><button data-tset="navigate">Navigate</button><button data-tset="pointer">Pointer</button>
+  </div>
+  <p id="tutBody"></p>
+  <p class="tutor-goal" id="tutGoal" hidden></p>
+  <div class="tutor-depth" id="tutDepth" hidden>
+    <b>Push and pull:</b>
+    <div class="seg two" role="group" aria-label="Push and pull direction">
+      <button data-depth="window" aria-pressed="true" title="The screen is a window: push toward it and the object goes deeper">Window</button>
+      <button data-depth="mirror" aria-pressed="false" title="The screen is a mirror: push toward it and the object comes toward you">Mirror</button>
+    </div>
+    <p class="fine"><b>Window:</b> the screen is a window into the scene. Push your hand toward the screen and the object moves away from you, deeper in; pull back to bring it closer.
+      <b>Mirror:</b> the screen is a mirror. Push toward the screen and the object comes toward you, like your reflection. Turning and moving side to side work the same in both. Mirror is the default when the camera is on; change it any time here or in the panel.</p>
+  </div>
+  <div class="tutor-done" id="tutDone" hidden role="status">
+    <span><b>Great job!</b> <span id="tutDoneText"></span></span>
+    <button class="btn primary" id="tutDoneNext">Next →</button>
+    <button class="btn" id="tutDoneAgain">Try again</button>
+  </div>
+  <div class="tutor-retry" id="tutRetry" hidden role="status">
+    <span id="tutRetryText"></span>
+    <button class="btn" id="tutRetryAgain" title="Enter">Try again ⏎</button>
+    <button class="btn" id="tutRetrySkip">Skip →</button>
+  </div>
+  <div class="tutor-progress"><i id="tutBar"></i></div>
+</div>
+<div class="tut-targets" id="tutTargets" aria-hidden="true"></div>
+
+<button class="btn" id="panelToggle" aria-expanded="false" aria-controls="panel">Controls</button>
+<aside class="panel" id="panel">
+  <div class="panel-head"><span></span><button id="btnHidePanel" title="Hide the panel (C)">Hide · C</button></div>
+  <section>
+    <h2>Gesture set</h2>
+    <div class="sets" role="group" aria-label="Gesture set">
+      <button data-set="grab" aria-pressed="true"><kbd>1</kbd><b>Grab</b><span>pick up · move · twist</span></button>
+      <button data-set="spin" aria-pressed="false"><kbd>2</kbd><b>Spin</b><span>poke · flick · trackball</span></button>
+      <button data-set="navigate" aria-pressed="false"><kbd>3</kbd><b>Navigate</b><span>crane · resize · reset</span></button>
+      <button data-set="pointer" aria-pressed="false"><kbd>4</kbd><b>Pointer</b><span>laser · send · summon</span></button>
+    </div>
+    <p class="set-help" id="setHelp"></p>
+    <details class="fine-tune">
+      <summary>Customize this set</summary>
+      <div class="fine-grid">
+        <label class="toggle"><input type="checkbox" id="g-grab">Pinch · grab &amp; move<small>M</small></label>
+        <label class="toggle"><input type="checkbox" id="g-grip">Grab · palm grip<small>K</small></label>
+        <label class="toggle"><input type="checkbox" id="g-depth">Push / pull for depth</label>
+        <label class="toggle"><input type="checkbox" id="g-twist">Twist wrist to rotate</label>
+        <label class="toggle"><input type="checkbox" id="g-twoHand">Two-hand pinch: roll, yaw, scale</label>
+        <label class="toggle"><input type="checkbox" id="g-poke">Poke · nudge spin<small>N</small></label>
+        <label class="toggle"><input type="checkbox" id="g-flick">Open · swipe flick<small>O</small></label>
+        <label class="toggle"><input type="checkbox" id="g-trackball">Fist · drag to spin<small>P</small></label>
+        <label class="toggle"><input type="checkbox" id="g-thumb">Thumb · brake / reset<small>L</small></label>
+        <label class="toggle"><input type="checkbox" id="g-crane">Crane · thumbs up / down<small>Q E</small></label>
+        <label class="toggle"><input type="checkbox" id="g-squeeze">Stretch · pinch both sides</label>
+        <label class="toggle"><input type="checkbox" id="g-dust">Reset · dust off hands</label>
+        <label class="toggle"><input type="checkbox" id="g-burst">Explode · two fists burst open<small>B</small></label>
+        <label class="toggle"><input type="checkbox" id="g-pointer">Finger gun laser<small>J</small></label>
+        <label class="toggle"><input type="checkbox" id="g-clap" checked>Reset · double clap <small>every set</small></label>
+        <label class="toggle"><input type="checkbox" id="g-menu" checked>Palm menu · hold open hand still <small>every set</small></label>
+      </div>
+    </details>
+  </section>
+  <section data-for="grab pointer">
+    <h2>Push / pull direction</h2>
+    <div class="seg two" role="group" aria-label="Depth direction">
+      <button data-depth="window" aria-pressed="true" title="Push toward the screen sends the object deeper; pull back brings it to you">Window</button>
+      <button data-depth="mirror" aria-pressed="false" title="Moves like your mirrored reflection: push toward the screen brings the object toward you">Mirror</button>
+    </div>
+  </section>
+  <section data-for="navigate" hidden>
+    <h2>Crane</h2>
+    <div class="seg two" role="group" aria-label="Thumbs up moves">
+      <button data-crane="camera" aria-pressed="true" title="Thumbs up lifts the camera, so the scene sinks on screen (like Unity's E key)">Camera up</button>
+      <button data-crane="world" aria-pressed="false" title="Thumbs up lifts the scene on screen (the camera goes down)">Scene up</button>
+    </div>
+    <div class="range">
+      <label for="r-craneSpeed">Crane speed <output id="o-craneSpeed">2.5</output></label>
+      <input type="range" id="r-craneSpeed" min="0.5" max="6" step="0.25" value="2.5">
+    </div>
+  </section>
+  <section data-for="pointer" hidden>
+    <h2>Pointer</h2>
+    <div class="seg two" role="group" aria-label="Aim from">
+      <button data-aim="finger" aria-pressed="true" title="The laser follows the direction your index finger points">Finger</button>
+      <button data-aim="cursor" aria-pressed="false" title="The laser goes straight through your fingertip, steadier but less laser-like">Fingertip</button>
+    </div>
+    <div class="range">
+      <label for="r-aimGain">Aim reach <output id="o-aimGain">2.2×</output></label>
+      <input type="range" id="r-aimGain" min="1" max="4" step="0.1" value="2.2">
+    </div>
+    <label class="toggle"><input type="checkbox" id="v-range">Target range</label>
+    <div class="btns"><button class="btn quiet" id="btnRange">New targets</button></div>
+  </section>
+  <section>
+    <h2>Rotation axis</h2>
+    <div class="seg" role="group" aria-label="Rotation axis lock">
+      <button data-lock="free" aria-pressed="true">Free</button>
+      <button data-lock="x" aria-pressed="false">X</button>
+      <button data-lock="y" aria-pressed="false">Y</button>
+      <button data-lock="z" aria-pressed="false">Z</button>
+    </div>
+    <div class="range">
+      <label for="r-sens">Rotation gain <output id="o-sens">1.2×</output></label>
+      <input type="range" id="r-sens" min="0.5" max="3" step="0.1" value="1.2">
+    </div>
+    <div class="range">
+      <label for="r-friction">Spin coast <output id="o-friction">medium</output></label>
+      <input type="range" id="r-friction" min="0.15" max="4" step="0.05" value="1.1">
+    </div>
+    <div class="range">
+      <label for="r-depth">Depth reach <output id="o-depth">5.0</output></label>
+      <input type="range" id="r-depth" min="2" max="10" step="0.5" value="5">
+    </div>
+  </section>
+  <section>
+    <h2>Objects</h2>
+    <div class="btns">
+      <button class="btn" data-add="cube">+ Cube</button>
+      <button class="btn" data-add="gem">+ Gem</button>
+      <button class="btn" data-add="knot">+ Knot</button>
+      <button class="btn" data-add="capsule">+ Capsule</button>
+      <button class="btn" id="btnLoadModel" style="grid-column: 1 / -1">Load 3D model (.glb / .gltf)…</button>
+      <input type="file" id="modelFile" accept=".glb,.gltf,model/gltf-binary" hidden>
+      <button class="btn quiet" id="btnRemove">Remove selected</button>
+      <button class="btn quiet" id="btnReset">Reset scene</button>
+    </div>
+    <div id="modelCtl" hidden>
+      <p class="set-help" id="modelInfo"></p>
+      <label class="toggle"><input type="checkbox" id="m-fast" checked>Fast materials (glass drawn as plain transparency)</label>
+      <div class="range">
+        <label for="r-cut">Cut away <output id="o-cut">0%</output></label>
+        <input type="range" id="r-cut" min="0" max="0.95" step="0.01" value="0">
+      </div>
+      <div class="range">
+        <label for="r-explode">Explode <output id="o-explode">0%</output></label>
+        <input type="range" id="r-explode" min="0" max="1" step="0.01" value="0">
+      </div>
+      <p class="set-help">Navigate set: both fists, then burst both hands open to explode; open hands, then close both into fists to collapse. B on the keyboard toggles it.</p>
+    </div>
+  </section>
+  <section>
+    <h2>View</h2>
+    <div class="seg three" role="group" aria-label="Camera video">
+      <button data-video="full" aria-pressed="true" title="Camera video fills the screen behind the scene">Full</button>
+      <button data-video="window" aria-pressed="false" title="Small camera preview in the corner; the scene gets the whole screen">Window</button>
+      <button data-video="off" aria-pressed="false" title="No video, just your hand skeleton">Off</button>
+    </div>
+    <div class="range">
+      <label for="r-reach">Hand reach area <output id="o-reach">100%</output></label>
+      <input type="range" id="r-reach" min="0.6" max="1" step="0.05" value="1">
+    </div>
+    <p class="set-help" id="reachHelp">100% lines your hand up with the video. Lower it so a smaller, comfortable area of the camera covers the whole screen.</p>
+    <label class="toggle"><input type="checkbox" id="v-skeleton" checked>Show hand skeleton</label>
+    <div class="range"><label>Highlight (hover, selected, held)</label></div>
+    <div class="seg three" role="group" aria-label="How hovered, selected and held objects are marked">
+      <button data-selstyle="glow" aria-pressed="true" title="A soft tint only while a hand is on it: faint on hover, amber while held">Glow</button>
+      <button data-selstyle="box" aria-pressed="false" title="An outline box: faint on hover, solid when selected, amber while held">Box</button>
+      <button data-selstyle="off" aria-pressed="false" title="No highlight at all">Off</button>
+    </div>
+    <div class="btns"><button class="btn" id="btnCam">Stop camera</button><button class="btn" id="btnVR" hidden>Enter VR</button></div>
+    <p class="set-help">Input: webcam hands, keyboard + mouse (always on), or a VR headset with hand tracking (Enter VR appears when the browser supports it).</p>
+  </section>
+</aside>
+
+<div class="legend" id="legend" aria-label="Gesture guide"></div>
+
+<div class="gate" id="gate">
+  <div class="card" role="dialog" aria-labelledby="gateTitle">
+    <h2 id="gateTitle">CellXR</h2>
+    <p>Pick up, turn and take apart 3D models with your hands through your webcam, or with the mouse and keyboard.</p>
+    <section class="gate-about" id="gateModel" hidden>
+      <h3>About this model</h3>
+      <p id="gateModelText">Loading the model…</p>
+    </section>
+    <div class="gate-q">
+      <span>Use your camera for hand tracking?</span>
+      <div class="seg two" role="group" aria-label="Use the camera">
+        <button data-gcam="yes" aria-pressed="true">Yes, camera</button>
+        <button data-gcam="no" aria-pressed="false">No, mouse + keys</button>
+      </div>
+      <p class="fine" id="gateMouseHelp" hidden>Hold N M K L O P to make a hand pose at the mouse pointer (poke, pinch, grab, thumb, open, fist), J for the finger gun. Drag to spin, Shift-drag to move, scroll for depth, B to explode, 1–4 to switch gesture sets. You can turn the camera on later from the panel.</p>
+    </div>
+    <div class="gate-q">
+      <span>Start with the gesture tutorial?</span>
+      <div class="seg two" role="group" aria-label="Start with the tutorial">
+        <button data-gtut="yes" aria-pressed="false">Yes, show me</button>
+        <button data-gtut="no" aria-pressed="true">No, go straight in</button>
+      </div>
+    </div>
+    <button class="btn primary" id="btnGo">Start</button>
+    <p class="fine">Works with or without a camera. Everything runs locally in your browser: hand tracking happens on your device, video is never recorded, uploaded or stored, and nothing about you or your session is saved. The page only downloads its code libraries, the hand-tracking model and the 3D model.</p>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const TASKS_VER = '0.10.14';
+const TASKS_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VER}`;
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const Z_MIN = -8, Z_MAX = 4.6;
+const SMOOTH = 0.5;
+const HAND_LINKS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const stage = $('#stage'), video = $('#video'), overlay = $('#overlay'), octx = overlay.getContext('2d');
+
+const settings = {
+  set: 'grab',
+  poke: false, grab: true, grip: true, thumb: false, flick: false, trackball: false,
+  depth: true, twist: true, twoHand: true,
+  crane: false, squeeze: false, clap: true, dust: false, burst: false,
+  pointer: false, menu: true, aimMode: 'finger', aimGain: 2.2, craneSpeed: 2.5, craneMode: 'camera',
+  depthMode: 'window', selStyle: 'glow', videoMode: 'full', reach: 1, reachTouched: false, lock: 'free', sens: 1.2, friction: 1.1, depthGain: 5, camera: true, skeleton: true,
+};
+
+// Gesture sets: only one is live at a time so poses don't collide. Double clap (reset) works in every set.
+const SET_GESTURES = ['grab', 'grip', 'depth', 'twist', 'twoHand', 'poke', 'flick', 'trackball', 'thumb',
+  'crane', 'squeeze', 'dust', 'burst', 'pointer'];
+const SETS = {
+  grab: { name: 'Grab', on: ['grab', 'grip', 'depth', 'twist', 'twoHand'],
+    help: 'Pinch or close your hand on an object to hold it. While holding: move, push/pull for depth, twist to rotate. An open hand only hovers.',
+    legend: [['M PINCH', 'grab · move'], ['K GRAB', 'palm grip'], ['PUSH / PULL', 'depth'], ['TWIST', 'rotate'], ['2-HAND PINCH', 'roll · scale']] },
+  spin: { name: 'Spin', on: ['poke', 'flick', 'trackball', 'thumb'],
+    help: 'Set objects spinning without picking them up. Thumbs-up brakes; hold it to set the object upright.',
+    legend: [['N POKE', 'nudge'], ['O SWIPE', 'flick'], ['P FIST', 'drag to spin'], ['L THUMB', 'brake · hold to reset']] },
+  navigate: { name: 'Navigate', on: ['crane', 'squeeze', 'dust', 'burst'],
+    help: 'Thumbs up cranes the camera up, thumbs down cranes it down, for as long as you hold it (Q and E on the keyboard do the same). Pinch with both hands on an object and pull apart to grow it, together to shrink it; release and re-pinch to keep going. Pinch both hands and hold still to set it back to 1×. On a loaded model, make two fists and burst both hands open to explode it; close both open hands into fists to bring it back together.',
+    legend: [['THUMB UP / DOWN', 'crane'], ['PINCH BOTH HANDS', 'stretch · shrink · repeat'], ['PINCH + HOLD', 'back to 1×'], ['FISTS → OPEN', 'explode'], ['OPEN → FISTS', 'collapse'], ['DUST OFF', 'reset']] },
+  pointer: { name: 'Pointer', on: ['pointer', 'grab', 'depth', 'twist'],
+    help: 'Finger gun aims a laser; drop your thumb to fire. Fire at an object to lock it, at a spot to send it there, at it again to summon it. Pinch in empty space to grab the locked object from afar.',
+    legend: [['J FINGER GUN', 'aim'], ['THUMB DOWN', 'fire · lock · send'], ['FIRE AGAIN', 'summon'], ['PINCH', 'remote grab']] },
+};
+
+const depthSign = () => settings.depthMode === 'mirror' ? 1 : -1;
+
+/* ---------- three.js scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.localClippingEnabled = true;   // cut-away view for loaded models
+renderer.domElement.id = 'gl';
+stage.appendChild(renderer.domElement);   // stacking is set in CSS: video < 3D scene < PiP preview
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+// The camera sits in a rig: desktop moves the rig (crane, frame, reset), and in VR the headset moves the camera
+// inside the rig while the rig still carries crane and frame moves.
+const rig = new THREE.Group();
+rig.add(camera);
+scene.add(rig);
+const CAM_HOME = new THREE.Vector3(0, 0, 8);
+rig.position.copy(CAM_HOME);
+const _camPos = new THREE.Vector3();
+const camPos = () => camera.getWorldPosition(_camPos);
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+keyLight.position.set(3, 4, 5);
+scene.add(keyLight, new THREE.AmbientLight(0xffffff, 0.2));
+
+// A faint floor so the crane's camera moves read as height, not as objects drifting.
+const floor = new THREE.GridHelper(60, 60, 0x6ef0c6, 0x6ef0c6);
+floor.position.y = -2.6;
+floor.material.transparent = true; floor.material.opacity = 0.14; floor.material.depthWrite = false;
+scene.add(floor);
+const camTarget = CAM_HOME.clone();   // where the rig is gliding to
+
+let W = 0, H = 0;
+function resize() {
+  W = stage.clientWidth; H = stage.clientHeight;
+  renderer.setSize(W, H);
+  camera.aspect = W / H; camera.updateProjectionMatrix();
+  const dpr = Math.min(devicePixelRatio, 2);
+  overlay.width = W * dpr; overlay.height = H * dpr;
+  overlay.style.width = W + 'px'; overlay.style.height = H + 'px';
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize);
+resize();
+
+/* ---------- objects ---------- */
+const objects = [];
+let selected = null;
+const FACES = [['#e98a5c', '+X'], ['#c96a45', '−X'], ['#6cc0b2', '+Y'], ['#4b9a8f', '−Y'], ['#ecc878', '+Z'], ['#c9a556', '−Z']];
+
+function faceTexture(bg, label) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = 'rgba(20,14,10,.22)'; g.lineWidth = 8; g.strokeRect(20, 20, 216, 216);
+  g.fillStyle = 'rgba(24,18,14,.8)';
+  g.font = '600 76px "IBM Plex Mono", ui-monospace, monospace';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(label, 128, 134);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+
+function makeShape(type, pos = new THREE.Vector3()) {
+  let geo, mat;
+  if (type === 'cube') {
+    geo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
+    mat = FACES.map(([bg, l]) => new THREE.MeshStandardMaterial({ map: faceTexture(bg, l), roughness: .55, metalness: .05 }));
+  } else if (type === 'gem') {
+    geo = new THREE.IcosahedronGeometry(1.05, 0);
+    mat = new THREE.MeshStandardMaterial({ color: 0x5fb8c9, roughness: .22, metalness: .25, flatShading: true });
+  } else if (type === 'knot') {
+    geo = new THREE.TorusKnotGeometry(.68, .24, 180, 24);
+    mat = new THREE.MeshStandardMaterial({ color: 0xe2935a, roughness: .32, metalness: .35 });
+  } else {
+    geo = new THREE.CapsuleGeometry(.5, 1.1, 10, 28);
+    mat = new THREE.MeshStandardMaterial({ color: 0xd9d2c3, roughness: .4, metalness: .1 });
+  }
+  geo.computeBoundingSphere(); geo.computeBoundingBox();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(pos);
+  mesh.rotation.set(.45, -.6, 0);
+  mesh.userData = { type, radius: geo.boundingSphere.radius, angVel: new THREE.Vector3(),
+    grabbedBy: null, spinBy: null, two: null, glow: 0, homing: false,
+    rest: mesh.quaternion.clone(), home: mesh.position.clone(),
+    halfH: (geo.boundingBox.max.y - geo.boundingBox.min.y) / 2, flight: null, materials: [].concat(mat) };
+  scene.add(mesh); objects.push(mesh);
+  selected = mesh;
+  return mesh;
+}
+
+function removeObject(o) {
+  if (!o) return;
+  for (const t of Object.values(tracks)) {
+    if (t.grab?.obj === o) t.grab = null;
+    if (t.assist === o) t.assist = null;
+    if (t.spin?.obj === o) t.spin = null;
+  }
+  scene.remove(o);
+  o.traverse(c => { c.geometry?.dispose(); [].concat(c.material || []).forEach(m => { m.map?.dispose(); m.dispose(); }); });
+  objects.splice(objects.indexOf(o), 1);
+  if (selected === o) selected = objects[objects.length - 1] || null;
+  if (rayLock === o) rayLock = null;
+}
+
+function resetScene() {
+  while (objects.length) removeObject(objects[0]);
+  camTarget.copy(CAM_HOME);
+  const c = makeShape('cube');
+  c.userData.angVel.set(0, .5, 0);
+}
+
+// Reset gesture: camera back to eye level, every object glides home, upright and full size.
+function resetView(source) {
+  snapshot(objects, 'Reset view');
+  homeRig();
+  for (const P of Object.values(pairs)) { endPair(P); P.cooldown = performance.now() + 1500; }
+  rayLock = null;
+  modelSettings.explodeTarget = 0; setExplode(0);
+  for (const o of objects) {
+    if (o.userData.grabbedBy || o.userData.spinBy) continue;
+    o.userData.angVel.set(0, 0, 0);
+    o.userData.flight = null;
+    o.userData.homing = 'full';
+  }
+  showToast(`Reset · ${source}`, 1400, 'reset');
+}
+
+/* ---------- geometry helpers ---------- */
+const ray = new THREE.Raycaster();
+const plane = new THREE.Plane();
+const tmp = new THREE.Vector3();
+const toNdc = p => new THREE.Vector2(p.x / W * 2 - 1, -(p.y / H) * 2 + 1);
+
+function worldAt(p, z) {
+  ray.setFromCamera(toNdc(p), camera);
+  plane.set(new THREE.Vector3(0, 0, 1), -z);
+  const out = new THREE.Vector3();
+  return ray.ray.intersectPlane(plane, out) ? out : out.set(0, 0, z);
+}
+function screenOf(o) {
+  tmp.copy(o.position).project(camera);
+  return { x: (tmp.x + 1) / 2 * W, y: (1 - tmp.y) / 2 * H };
+}
+function screenRadius(o) {
+  const d = camPos().distanceTo(o.position);
+  const focal = H / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+  return o.userData.radius * o.scale.x / d * focal;
+}
+function pick(p, slack = 1.2) {
+  ray.setFromCamera(toNdc(p), camera);
+  const hits = ray.intersectObjects(objects, false);
+  if (hits.length) return hits[0].object;
+  let best = null, bd = Infinity;
+  for (const o of objects) {
+    const s = screenOf(o), d = Math.hypot(s.x - p.x, s.y - p.y);
+    if (d < screenRadius(o) * slack && d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+
+/* ---------- rotation helpers (rotation vectors = axis * angle, world space) ---------- */
+const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+function lockVec(v) {
+  if (settings.lock === 'free') return v;
+  const a = AXES[settings.lock];
+  return a.clone().multiplyScalar(v.dot(a));
+}
+function quatToRotVec(q) {
+  let { x, y, z, w } = q;
+  if (w < 0) { x = -x; y = -y; z = -z; w = -w; }
+  const s = Math.sqrt(Math.max(0, 1 - w * w));
+  if (s < 1e-6) return new THREE.Vector3();
+  return new THREE.Vector3(x / s, y / s, z / s).multiplyScalar(2 * Math.acos(Math.min(1, w)));
+}
+function rotVecToQuat(v) {
+  const a = v.length();
+  return a < 1e-9 ? new THREE.Quaternion() : new THREE.Quaternion().setFromAxisAngle(v.clone().divideScalar(a), a);
+}
+function rotateWorld(o, rv) { o.quaternion.premultiply(rotVecToQuat(rv)); }
+// Screen drag (px, y down) -> rotation vector. Dragging right spins about +Y, dragging down about +X.
+const dragRot = (dx, dy, k) => lockVec(new THREE.Vector3(dy, dx, 0).multiplyScalar(k));
+
+const _basis = new THREE.Matrix4();
+function handQuat(wl) {
+  // MediaPipe world coords: x = image right (your left), y down, z away from the camera (toward you).
+  // Your own frame is (-x, -y, +z): your right, up, toward you. That's a proper rotation, so a turn of your
+  // wrist becomes the same turn of the object, in Window and Mirror mode alike (Mirror only flips depth travel).
+  // Negating z as well (as before) made it a reflection: yaw and pitch came out backwards.
+  const v = i => new THREE.Vector3(-wl[i].x, -wl[i].y, wl[i].z);
+  const wrist = v(0);
+  const up = v(9).sub(wrist).normalize();
+  const side = v(17).sub(v(5)).normalize();
+  const n = new THREE.Vector3().crossVectors(side, up).normalize();
+  const s = new THREE.Vector3().crossVectors(up, n).normalize();
+  _basis.makeBasis(s, up, n);
+  return new THREE.Quaternion().setFromRotationMatrix(_basis);
+}
+// Palm normal in scene space. Only its axis is used (|x|, |y|), so the result doesn't depend on
+// MediaPipe getting left/right right: palms down or up = mostly Y, palms facing each other = mostly X.
+function palmNormal(wl) {
+  const v = i => new THREE.Vector3(-wl[i].x, -wl[i].y, wl[i].z);
+  const w = v(0);
+  return new THREE.Vector3().crossVectors(v(5).sub(w), v(17).sub(w)).normalize();
+}
+const handOrient = t => t.orient || t.ghostQ || (t.world ? handQuat(t.world) : null);
+
+/* ---------- hand tracks ---------- */
+function newTrack(label) {
+  return { label, present: false, visible: false, lastSeen: 0, pts: null, world: null,
+    scale: 1, pinching: false, pinchRatio: 1, curl: 2, gesture: 'none', cand: 'none', candN: 0,
+    pinchPt: { x: 0, y: 0 }, palm: { x: 0, y: 0 }, tip: { x: 0, y: 0 }, prevPalm: null, prevTip: null,
+    vel: { x: 0, y: 0 }, tipVel: { x: 0, y: 0 }, thumbHold: 0, thumbDone: false,
+    palmN: null, ghostQ: null, pairMode: null, draw: null,
+    craneT: 0, dwellObj: null, dwellT: 0, menuHold: 0, wasPinching: false, consumed: false, pinchHist: null, cocked: false, fireEvt: false, lastFire: -1e9, aiming: false, aimPt: null, rayDir: null, ray: null, hit: null, prevG: '',
+    grab: null, assist: null, assistMode: null, spin: null };
+}
+const tracks = { Left: newTrack('Left'), Right: newTrack('Right'), Sim: newTrack('Sim'),
+  GL: newTrack('GL'), GR: newTrack('GR') };   // GL / GR = tutorial ghost hands
+const LABELS = ['Left', 'Right'];
+const ALL = ['Left', 'Right', 'Sim'];
+// Where a holding hand "is": fingertip pair for a pinch, palm centre for a whole-hand grab.
+const holdPt = (t, mode) => (mode || t.grab?.mode) === 'grip' ? t.palm : t.pinchPt;
+// A hold keeps going until the pinch opens, or (for a grip) until the fingers open out.
+const stillHolding = (t, mode) => mode === 'grip' ? t.curl < 1.6 && t.gesture !== 'open' : t.pinching;
+
+function toScreen(lm) {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const s = Math.max(W / vw, H / vh), dw = vw * s, dh = vh * s;
+  // Hand reach area: the central `reach` fraction of the camera frame is stretched over the whole screen,
+  // so you can reach every edge without your hand leaving the camera's view. 1 = lines up with the video.
+  const r = settings.reach, nx = ((1 - lm.x) - (1 - r) / 2) / r, ny = (lm.y - (1 - r) / 2) / r;
+  return { x: (W - dw) / 2 + nx * dw, y: (H - dh) / 2 + ny * dh, z: lm.z };
+}
+const lerpPts = (prev, next, a) => prev.map((p, k) => ({
+  x: p.x + (next[k].x - p.x) * a, y: p.y + (next[k].y - p.y) * a, z: p.z + (next[k].z - p.z) * a }));
+
+function processResult(res, now, dt) {
+  const seen = new Set();
+  const handed = res.handedness || res.handednesses || [];
+  (res.landmarks || []).forEach((lms, i) => {
+    // MediaPipe labels assume a mirrored image; the raw webcam is not mirrored, so swap.
+    let label = handed[i]?.[0]?.categoryName === 'Left' ? 'Right' : 'Left';
+    if (seen.has(label)) label = label === 'Left' ? 'Right' : 'Left';
+    seen.add(label);
+    const t = tracks[label];
+    const fresh = !t.present || now - t.lastSeen > 200;
+    const pts = lms.map(toScreen);
+    t.norm = lms.map(p => ({ x: 1 - p.x, y: p.y }));   // raw mirrored frame coords, for the picture-in-picture skeleton
+    t.pts = fresh ? pts : lerpPts(t.pts, pts, SMOOTH);
+    const wl = res.worldLandmarks?.[i];
+    if (wl) t.world = fresh || !t.world ? wl.map(p => ({ x: p.x, y: p.y, z: p.z })) : lerpPts(t.world, wl, SMOOTH);
+    t.palmN = t.world ? palmNormal(t.world) : null;
+    t.source = 'webcam';
+    t.present = true; t.visible = true; t.lastSeen = now;
+    classify(t, dt, fresh);
+  });
+  for (const label of LABELS) {
+    const t = tracks[label];
+    if (seen.has(label)) continue;
+    t.visible = false;
+    if (t.present && now - t.lastSeen > 250) loseTrack(t);
+  }
+}
+
+function classify(t, dt, fresh) {
+  const P = t.pts, Wl = t.world;
+  const d2 = (a, b) => Math.hypot(P[a].x - P[b].x, P[a].y - P[b].y);
+  // Finger tests use the 3D world landmarks when available, so a hand pointing at the camera
+  // (fingers pointing at the camera) still reads correctly despite being foreshortened on screen.
+  const d = Wl ? (a, b) => Math.hypot(Wl[a].x - Wl[b].x, Wl[a].y - Wl[b].y, Wl[a].z - Wl[b].z) : d2;
+  t.scale = Math.max(1, d2(0, 9));          // on-screen hand size drives push/pull depth
+  const unit = d(0, 9) || 1;
+  t.pinchRatio = d(4, 8) / unit;
+  const indexOut = d(8, 0) > d(5, 0) * 1.1; // separates a pinch from a fist with the thumb tucked over the index
+  if (!t.pinching && t.pinchRatio < 0.33 && indexOut) t.pinching = true;
+  else if (t.pinching && t.pinchRatio > 0.5) t.pinching = false;
+
+  // The six OpenXR hand poses: Poke, Pinch, Grab, Thumb, Open, Fist.
+  const fingers = [[8, 6, 5], [12, 10, 9], [16, 14, 13], [20, 18, 17]]; // tip, pip, mcp
+  const ext = fingers.map(([tip, pip]) => d(tip, 0) > d(pip, 0) * 1.12);
+  const curled = fingers.map(([tip, pip]) => d(tip, 0) < d(pip, 0));
+  t.curl = fingers.reduce((a, [tip, , mcp]) => a + d(tip, 0) / d(mcp, 0), 0) / 4; // ~1.8 open · ~1.2 grip · <1.05 fist
+  const thumbGap = Math.min(d(4, 6), d(4, 10)) / unit;  // thumb tucked over the fingers (fist) vs opposed (grab)
+  const thumbOut = d(4, 5) / unit > 0.75 && d(4, 0) > d(3, 0) * 1.05;
+  const thumbUp = thumbOut && P[4].y < P[5].y - 0.25 * t.scale;
+  const thumbDown = thumbOut && P[4].y > P[5].y + 0.25 * t.scale;
+  // Finger gun: index out, other three curled. Thumb up = cocked (aiming); dropping the thumb onto the
+  // index fires once. Hysteresis means a half-raised thumb keeps whatever state it was in.
+  const gunPose = ext[0] && curled[1] && curled[2] && curled[3];
+  if (gunPose) {
+    const thumbOut = d(4, 6) / unit > 0.5 && d(4, 5) / unit > 0.55;
+    const thumbDown = d(4, 6) / unit < 0.38 || d(4, 5) / unit < 0.4;
+    if (thumbOut) t.cocked = true;
+    else if (t.cocked && thumbDown) { t.cocked = false; t.fireEvt = true; }
+  } else t.cocked = false;
+
+  let raw;
+  if (t.pinching) raw = 'pinch';
+  else if (thumbUp && curled.every(Boolean)) raw = 'thumb';
+  else if (thumbDown && curled.every(Boolean)) raw = 'thumbdown';
+  else if (gunPose) raw = t.cocked ? 'gun' : 'poke';
+  else if (curled.every(Boolean) && t.curl < 1.05 && thumbGap < 0.4) raw = 'fist';
+  else if (!ext.some(Boolean) && t.curl < 1.5 && thumbGap >= 0.4) raw = 'grab';
+  else if (ext.every(Boolean)) raw = 'open';
+  else raw = 'idle';
+  setGesture(t, raw);
+
+  t.pinchPt = { x: (P[4].x + P[8].x) / 2, y: (P[4].y + P[8].y) / 2 };
+  const palm = [0, 5, 9, 13, 17].reduce((a, i) => ({ x: a.x + P[i].x / 5, y: a.y + P[i].y / 5 }), { x: 0, y: 0 });
+  trackMotion(t, palm, { x: P[8].x, y: P[8].y }, dt, fresh);
+}
+
+// Pinch switches instantly (it has its own hysteresis); other poses must hold for 3 frames to avoid flicker.
+function setGesture(t, raw) {
+  if (raw === 'pinch') { t.gesture = 'pinch'; t.cand = raw; t.candN = 0; return; }
+  if (raw === t.cand) t.candN++; else { t.cand = raw; t.candN = 1; }
+  if (t.candN >= 3) t.gesture = raw;
+}
+function trackMotion(t, palm, tip, dt, fresh) {
+  const ema = (vel, cur, prev) => {
+    if (prev && !fresh && dt > 0) { vel.x += ((cur.x - prev.x) / dt - vel.x) * 0.5; vel.y += ((cur.y - prev.y) / dt - vel.y) * 0.5; }
+    else vel.x = vel.y = 0;
+  };
+  ema(t.vel, palm, t.prevPalm); ema(t.tipVel, tip, t.prevTip);
+  t.prevPalm = t.palm = palm; t.prevTip = t.tip = tip;
+}
+
+function loseTrack(t) {
+  if (t.assist) endTwo(t.assist);
+  if (t.grab) endGrab(t);
+  if (t.spin) endSpin(t);
+  t.present = t.visible = false; t.pinching = false; t.gesture = 'none';
+  t.cand = 'none'; t.candN = 0; t.curl = 2;
+  t.prevPalm = t.prevTip = null; t.thumbHold = 0; t.thumbDone = false;
+  t.palmN = null; t.ghostQ = null; t.orient = null; t.xrRay = null; t.draw = null;
+  t.cocked = false; t.fireEvt = false; t.aiming = false; t.aimPt = null; t.rayDir = null; t.ray = null; t.hit = null; t.prevG = '';
+  for (const P of Object.values(pairs)) if (tracks[P.a] === t || tracks[P.b] === t) endPair(P);
+}
+
+/* ---------- grab: pinch, move, depth, twist ---------- */
+function baseline(t) {
+  const g = t.grab, o = g.obj;
+  g.scale0 = t.scale; g.z0 = o.position.z;
+  g.q0 = o.quaternion.clone();
+  g.hq0 = handOrient(t);
+  g.offset = o.position.clone().sub(worldAt(holdPt(t), o.position.z));
+}
+function startGrab(t, o, mode) {
+  const now = performance.now(), h = t.pinchHist;
+  // Double-pinch: a second pinch on the same object within 450 ms (barely moved in between) sends it home.
+  if (mode === 'pinch' && h && h.obj === o && now - h.t0 < 450 && h.moved < 14) {
+    t.pinchHist = null; t.consumed = true; sendHome(o); return;
+  }
+  snapshot(o, 'Move');
+  t.grab = { obj: o, mode, prevQ: o.quaternion.clone(), rotVel: new THREE.Vector3() };
+  tutEmit('grab:' + mode); if (o === rayLock && settings.pointer) tutEmit('remote');
+  const hp = holdPt(t, mode);
+  t.pinchHist = { obj: o, t0: now, start: { x: hp.x, y: hp.y }, moved: 0 };
+  baseline(t);
+  o.userData.grabbedBy = t; o.userData.angVel.set(0, 0, 0); o.userData.homing = false; o.userData.flight = null;
+  selected = o;
+}
+function updateGrab(t, dt) {
+  const g = t.grab, o = g.obj;
+  if (o.userData.two) updateTwo(o);
+  else {
+    let z = g.z0;
+    // Hand grows as it nears the camera. Window: that pushes the object deeper. Mirror: it comes toward you.
+    if (settings.depth) z = clamp(g.z0 + depthSign() * (t.scale / g.scale0 - 1) * settings.depthGain, camPos().z + Z_MIN - 8, camPos().z + Z_MAX - 8);
+    z = o.position.z + (z - o.position.z) * 0.5;
+    o.position.lerp(worldAt(holdPt(t), z).add(g.offset), 0.55);
+    const hq = settings.twist && g.hq0 ? handOrient(t) : null;
+    if (hq) {
+      const delta = hq.clone().multiply(g.hq0.clone().invert());
+      const rv = lockVec(quatToRotVec(delta)).multiplyScalar(settings.sens);
+      o.quaternion.slerp(rotVecToQuat(rv).multiply(g.q0), 0.6);
+    }
+  }
+  const step = quatToRotVec(o.quaternion.clone().multiply(g.prevQ.clone().invert())).divideScalar(Math.max(dt, 1 / 120));
+  g.rotVel.lerp(step, 0.3);
+  g.prevQ.copy(o.quaternion);
+}
+function endGrab(t) {
+  const g = t.grab, o = g.obj;
+  if (t.pinchHist && t.pinchHist.obj === o) { const hp = holdPt(t); t.pinchHist.moved = Math.hypot(hp.x - t.pinchHist.start.x, hp.y - t.pinchHist.start.y); }
+  if (o.userData.two) endTwo(o);
+  // A quick wrist flick at release keeps the object spinning.
+  if (g.rotVel.length() > 2) o.userData.angVel.copy(lockVec(g.rotVel)).multiplyScalar(0.6).clampLength(0, 12);
+  o.userData.grabbedBy = null;
+  t.grab = null;
+  checkDelivery(o);
+}
+
+/* ---------- two hands: roll, yaw, scale ---------- */
+function startTwo(owner, helper, o, mode) {
+  tutEmit('two');
+  helper.assistMode = mode;
+  const a = holdPt(owner), b = holdPt(helper, mode);
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  o.userData.two = { owner, helper,
+    ang0: Math.atan2(b.y - a.y, b.x - a.x), dist0: Math.max(20, Math.hypot(b.x - a.x, b.y - a.y)),
+    r0: Math.log(helper.scale / owner.scale), s0: o.scale.x, q0: o.quaternion.clone(),
+    offset: o.position.clone().sub(worldAt(mid, o.position.z)) };
+  helper.assist = o;
+}
+function updateTwo(o) {
+  const T = o.userData.two, a = holdPt(T.owner), b = holdPt(T.helper, T.helper.assistMode);
+  let dAng = Math.atan2(b.y - a.y, b.x - a.x) - T.ang0;
+  dAng = Math.atan2(Math.sin(dAng), Math.cos(dAng));
+  const roll = -dAng; // clockwise on screen = rotation about -Z
+  const r = Math.log(T.helper.scale / T.owner.scale);
+  // The side held by the hand nearer the camera goes deeper (window) or comes forward (mirror).
+  const yaw = -depthSign() * (r - T.r0) * 2.4 * Math.sign(b.x - a.x || 1);
+  const rv = lockVec(new THREE.Vector3(0, yaw, roll)).multiplyScalar(settings.sens);
+  o.quaternion.slerp(rotVecToQuat(rv).multiply(T.q0), 0.6);
+  const s = clamp(T.s0 * Math.hypot(b.x - a.x, b.y - a.y) / T.dist0, 0.35, 3);
+  o.scale.setScalar(o.scale.x + (s - o.scale.x) * 0.5);
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  o.position.lerp(worldAt(mid, o.position.z).add(T.offset), 0.55);
+}
+function endTwo(o) {
+  const T = o.userData.two;
+  if (!T) return;
+  T.helper.assist = null;
+  o.userData.two = null;
+  if (T.owner.grab) baseline(T.owner);
+}
+
+/* ---------- fist trackball ---------- */
+function endSpin(t) {
+  if (t.spin) t.spin.obj.userData.spinBy = null;
+  t.spin = null;
+}
+
+/* ---------- per-detection interaction step ---------- */
+let flashes = [];
+function flash(o) { if (!flashes.some(f => f.obj === o)) flashes.push({ obj: o, t: 1 }); }
+const free = o => o && !o.userData.grabbedBy && !o.userData.spinBy;
+
+function interact(dt, labels) {
+  for (const label of labels) {
+    const t = tracks[label];
+    if (!t.visible || t.pairMode) continue;   // a two-hand gesture owns this hand
+    const rising = t.pinching && !t.wasPinching;
+    t.wasPinching = t.pinching;
+    if (!t.pinching && t.gesture !== 'grab') t.consumed = false;
+    // A pinch while the palm menu is open belongs to the menu (choose an item, or close it).
+    if (menu.open && rising) { chooseMenu(t); t.consumed = true; continue; }
+
+    // PINCH (M) and GRAB (K): pick up, move, push/pull, twist, two-hand
+    const holding = t.grab || t.assist;
+    if (holding) {
+      const mode = t.grab ? t.grab.mode : t.assistMode;
+      if (stillHolding(t, mode)) { if (t.grab) updateGrab(t, dt); }
+      else { if (t.assist) endTwo(t.assist); if (t.grab) endGrab(t); }
+    } else {
+      const mode = t.pinching && settings.grab ? 'pinch' : t.gesture === 'grab' && settings.grip ? 'grip' : null;
+      if (mode && !t.consumed) {
+        let o = pick(holdPt(t, mode), mode === 'grip' ? 1.4 : 1.15);
+        // Remote grab: with something locked by the finger gun, a pinch or grab in empty space takes hold of it.
+        if (!o && settings.pointer && free(rayLock)) o = rayLock;
+        if (o) {
+          const owner = o.userData.grabbedBy;
+          if (!owner && !o.userData.spinBy) { startGrab(t, o, mode); if (t.grab) updateGrab(t, dt); }   // a double-pinch starts no grab
+          else if (owner && owner !== t && settings.twoHand && !o.userData.two) startTwo(owner, t, o, mode);
+        }
+      }
+    }
+
+    // POKE (N): index fingertip pushes the surface; off-centre pokes add roll, like flicking a globe
+    // (a thumb dropped to fire the finger gun also reads as poke, so ignore pokes right after a shot)
+    if (settings.poke && t.gesture === 'poke' && !t.grab && performance.now() - t.lastFire > 800) {
+      const o = pick(t.tip, 1.0);
+      const speed = Math.hypot(t.tipVel.x, t.tipVel.y);
+      if (free(o) && speed > 0.12 * H) {
+        snapshotOnce(o, 'Nudge');
+        const c = screenOf(o), R = screenRadius(o);
+        let px = (t.tip.x - c.x) / R, py = -(t.tip.y - c.y) / R;
+        const r2 = px * px + py * py;
+        if (r2 > 1) { px /= Math.sqrt(r2); py /= Math.sqrt(r2); }
+        const contact = new THREE.Vector3(px, py, Math.sqrt(Math.max(0, 1 - px * px - py * py)));
+        const push = new THREE.Vector3(t.tipVel.x, -t.tipVel.y, 0).multiplyScalar(dt / R);
+        const torque = new THREE.Vector3().crossVectors(contact, push);
+        o.userData.angVel.add(lockVec(torque).multiplyScalar(6 * settings.sens)).clampLength(0, 20);
+        o.userData.homing = false; selected = o; flash(o); tutEmit('poke');
+      }
+    }
+
+    // DWELL SELECT: point (Poke pose) at an object for 0.6 s, in sets where poking isn't an action
+    if (!settings.poke && t.gesture === 'poke' && !t.grab && performance.now() - t.lastFire > 800) {
+      const o = pick(t.tip, 1.0);
+      if (o && o === t.dwellObj) {
+        t.dwellT += dt;
+        if (t.dwellT >= 0.6 && selected !== o) { select(o); showToast('Selected', 700); }
+      } else { t.dwellObj = o; t.dwellT = 0; }
+    } else { t.dwellObj = null; t.dwellT = 0; }
+
+    // PALM MENU: an open hand held still for 1 s, away from objects and not holding anything
+    // (desktop only for now: in a headset the 2D menu isn't visible, so VR hands never open it)
+    if (settings.menu && t.source !== 'ghost' && t.source !== 'xr' && t.gesture === 'open' && !t.grab && !menu.open) {
+      const still = Math.hypot(t.vel.x, t.vel.y) / H < 0.25;
+      if (still && !pick(t.palm, 1.3)) {
+        t.menuHold += dt;
+        if (t.menuHold >= 1) { t.menuHold = 0; openMenu(t.palm); }
+      } else t.menuHold = 0;
+    } else t.menuHold = 0;
+
+    // CRANE (Navigate): thumbs up / down moves the camera up / down at a steady speed while held, like Q / E.
+    if (settings.crane && (t.gesture === 'thumb' || t.gesture === 'thumbdown') && !t.grab) {
+      const dir = (t.gesture === 'thumb' ? 1 : -1) * (settings.craneMode === 'camera' ? 1 : -1);
+      t.craneT += dt;
+      crane(dir, dt, Math.min(1, t.craneT / 0.4));   // eases in over 0.4 s
+    } else t.craneT = 0;
+
+    // THUMB (L): thumbs-up brakes every spin; hold 1 s to ease the selected object back to its rest pose
+    if (settings.thumb && t.gesture === 'thumb') {
+      t.thumbHold += dt;
+      for (const o of objects) if (free(o)) o.userData.angVel.multiplyScalar(Math.exp(-6 * dt));
+      if (t.thumbHold > 1 && !t.thumbDone && selected) { snapshot(selected, 'Upright'); selected.userData.homing = true; t.thumbDone = true; flash(selected); tutEmit('upright'); }
+    } else { t.thumbHold = 0; t.thumbDone = false; }
+
+    // FIST (P): virtual trackball
+    if (settings.trackball && t.gesture === 'fist' && !t.grab) {
+      if (!t.spin) {
+        const o = pick(t.palm, 1.7);
+        if (free(o)) {
+          snapshot(o, 'Spin');
+          t.spin = { obj: o, last: { ...t.palm } }; tutEmit('trackball');
+          o.userData.spinBy = t; o.userData.homing = false; selected = o;
+        }
+      } else {
+        const o = t.spin.obj;
+        const rv = dragRot(t.palm.x - t.spin.last.x, t.palm.y - t.spin.last.y, 0.012 * settings.sens);
+        rotateWorld(o, rv);
+        o.userData.angVel.lerp(rv.clone().divideScalar(Math.max(dt, 1 / 120)), 0.35).clampLength(0, 15);
+        t.spin.last = { ...t.palm };
+      }
+    } else if (t.spin) endSpin(t);
+
+    // OPEN (O): fast palm swipe across an object flicks it spinning, axis perpendicular to the swipe
+    if (settings.flick && t.gesture === 'open' && !t.grab) {
+      const speed = Math.hypot(t.vel.x, t.vel.y);
+      if (speed / H > 1.1) {
+        const o = pick(t.palm, 1.8);
+        if (free(o)) {
+          snapshotOnce(o, 'Flick');
+          o.userData.angVel.add(dragRot(t.vel.x * dt, t.vel.y * dt, 0.02 * settings.sens)).clampLength(0, 20);
+          o.userData.homing = false; selected = o; flash(o); tutEmit('flick');
+        }
+      }
+    }
+  }
+}
+
+/* ---------- finger gun: aim, fire, lock, send, summon ---------- */
+const FLOOR_Y = floor.position.y;
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -FLOOR_Y);
+const aimCaster = new THREE.Raycaster();
+let rayLock = null;          // the object the finger gun has locked onto
+let shotFx = [];             // expanding rings where shots land
+
+function aimRay(t) {
+  if (t.xrRay) return t.xrRay.clone();   // VR: the runtime's own hand ray
+  // Ghost and simulated hands aim at a screen point: a ray from the camera through it.
+  if (t.aimPt) { aimCaster.setFromCamera(toNdc(t.aimPt), camera); return aimCaster.ray.clone(); }
+  if (settings.aimMode === 'finger' && t.world) {
+    // Laser follows the index finger's 3D direction (knuckle -> tip). MediaPipe x is mirrored for the selfie view,
+    // y flipped to up, and pointing toward the screen (toward the webcam) goes INTO the scene.
+    const W = t.world, g = settings.aimGain;
+    const dx = W[8].x - W[5].x, dy = W[8].y - W[5].y, dz = W[8].z - W[5].z;
+    const dir = new THREE.Vector3(-dx * g, -dy * g, Math.min(dz, -0.015)).normalize();
+    t.rayDir = t.rayDir ? t.rayDir.lerp(dir, 0.35).normalize() : dir;
+    const origin = worldAt(t.pts[5], camPos().z - 1.2);   // starts just in front of you, under your knuckle
+    return new THREE.Ray(origin, t.rayDir.clone());
+  }
+  aimCaster.setFromCamera(toNdc(t.tip), camera);                 // fingertip cursor
+  return aimCaster.ray.clone();
+}
+
+function rayHit(ray) {
+  aimCaster.set(ray.origin, ray.direction);
+  aimCaster.far = 80;
+  const targets = objects.filter(o => !o.userData.flight);
+  if (range.group.visible) targets.push(...range.rings.map(r => r.userData.disc), ...range.pads);
+  const hits = aimCaster.intersectObjects(targets.filter(o => !o.userData.complex), false);
+  // Loaded models: test the bounding sphere instead of every triangle (fast, and the whole model is the target)
+  for (const o of targets) {
+    if (!o.userData.complex) continue;
+    const sph = new THREE.Sphere(o.position.clone(), o.userData.radius * o.scale.x), p = new THREE.Vector3();
+    if (aimCaster.ray.intersectSphere(sph, p)) hits.push({ object: o, point: p, distance: p.distanceTo(aimCaster.ray.origin), face: null,
+      complexNormal: p.clone().sub(sph.center).normalize() });
+  }
+  hits.sort((a, b) => a.distance - b.distance);
+  if (hits.length) {
+    const h = hits[0], o = h.object;
+    const normal = h.complexNormal || (h.face ? h.face.normal.clone().transformDirection(o.matrixWorld) : new THREE.Vector3(0, 1, 0));
+    return { kind: o.userData.kind || 'object', obj: o, point: h.point.clone(), normal };
+  }
+  const p = new THREE.Vector3();
+  if (ray.intersectPlane(floorPlane, p) && p.distanceTo(ray.origin) < 70) return { kind: 'floor', point: p, normal: new THREE.Vector3(0, 1, 0) };
+  return { kind: 'none', point: ray.at(16, new THREE.Vector3()) };
+}
+
+// Ballistic hop to a destination, higher arcs for longer throws.
+function fly(o, dest, spin = true, label = 'Send') {
+  snapshot(o, label);
+  const u = o.userData, dist = o.position.distanceTo(dest);
+  u.homing = false;
+  u.flight = { from: o.position.clone(), to: dest.clone(), t: 0, dur: clamp(dist * 0.09, 0.45, 1.2), h: clamp(dist * 0.22, 0.4, 3) };
+  if (spin) u.angVel.set((Math.random() - .5) * 6, 4 + Math.random() * 3, (Math.random() - .5) * 3);
+}
+function landingFor(o, hit) {
+  const u = o.userData, s = o.scale.x;
+  if (hit.kind === 'ring') return hit.obj.userData.ring.position.clone();
+  if (hit.kind === 'floor' || hit.kind === 'pad') return new THREE.Vector3(hit.point.x, FLOOR_Y + u.halfH * s + 0.04, hit.point.z);
+  if (hit.kind === 'object') return hit.point.clone().add(hit.normal.clone().multiplyScalar(u.radius * s * 0.9));
+  return hit.point.clone();
+}
+const summonPoint = () => worldAt({ x: W * 0.5, y: H * 0.6 }, camPos().z - 5.4);
+
+function handleFire(t, hit) {
+  shotFx.push({ p: hit.point.clone(), t: 1 });
+  const locked = free(rayLock) ? rayLock : null;
+  if (hit.kind === 'object') {
+    if (hit.obj === locked) { fly(locked, summonPoint(), false, 'Summon'); locked.userData.angVel.multiplyScalar(0.2); showToast('Summoned', 900); tutEmit('summon'); return; }
+    // Firing at a different object switches the lock to it.
+    if (free(hit.obj)) { rayLock = hit.obj; selected = hit.obj; flash(hit.obj); tutEmit('lock'); showToast('Locked · fire at a spot to send it, at it again to summon, or pinch to grab', 2600); }
+    return;
+  }
+  if (hit.kind === 'ring' && !locked) { tagRing(hit.obj.userData.ring); return; }
+  if (!locked) return;
+  if (hit.kind === 'none') { rayLock = null; showToast('Released', 800); return; }
+  fly(locked, landingFor(locked, hit)); tutEmit('send');
+}
+
+function pointerStep(t, now) {
+  const aiming = settings.pointer && t.visible && !t.grab && !t.pairMode &&
+    (t.gesture === 'gun' || t.fireEvt || now - t.lastFire < 450);
+  t.aiming = aiming;
+  if (!aiming) { t.hit = null; t.fireEvt = false; return; }
+  t.ray = aimRay(t);
+  t.hit = rayHit(t.ray);
+  if (t.fireEvt) { t.fireEvt = false; t.lastFire = now; handleFire(t, t.hit); }
+}
+
+/* ---------- target range: rings to tag, floor pads to deliver onto ---------- */
+const range = { on: false, rings: [], pads: [], tags: 0, delivered: 0, group: new THREE.Group() };
+range.group.visible = false;
+scene.add(range.group);
+const rand = (a, b) => a + Math.random() * (b - a);
+
+function makeRing() {
+  const ring = new THREE.Group();
+  const torus = new THREE.Mesh(new THREE.TorusGeometry(.55, .07, 12, 48),
+    new THREE.MeshStandardMaterial({ color: 0x6ef0c6, emissive: 0x6ef0c6, emissiveIntensity: .45, roughness: .4 }));
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(.55, 32),
+    new THREE.MeshBasicMaterial({ color: 0x6ef0c6, transparent: true, opacity: .08, side: THREE.DoubleSide, depthWrite: false }));
+  disc.userData = { kind: 'ring', ring };
+  torus.userData = { kind: 'ring', ring };
+  ring.add(torus, disc);
+  ring.userData = { disc, pop: 0, phase: Math.random() * 6 };
+  placeRing(ring);
+  range.group.add(ring); range.rings.push(ring);
+}
+function placeRing(r) {
+  r.position.set(rand(-4.5, 4.5), rand(-1, 2.6), rand(-10, -1.5));
+  r.userData.base = r.position.y; r.userData.pop = 0; r.scale.setScalar(1);
+}
+function makePad() {
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(.9, .9, .05, 40),
+    new THREE.MeshStandardMaterial({ color: 0xffb04a, emissive: 0xffb04a, emissiveIntensity: .35, transparent: true, opacity: .55, roughness: .6 }));
+  const edge = new THREE.Mesh(new THREE.TorusGeometry(.9, .035, 8, 48), new THREE.MeshBasicMaterial({ color: 0xffb04a }));
+  edge.rotation.x = Math.PI / 2; pad.add(edge);
+  pad.userData = { kind: 'pad', pulse: 0 };
+  placePad(pad);
+  range.group.add(pad); range.pads.push(pad);
+}
+function placePad(p) { p.position.set(rand(-4, 4), FLOOR_Y + .03, rand(-8, -.5)); p.userData.pulse = 0; }
+
+function setRange(on) {
+  range.on = on;
+  if (on && !range.rings.length) { for (let i = 0; i < 5; i++) makeRing(); for (let i = 0; i < 2; i++) makePad(); }
+  range.group.visible = on && settings.set === 'pointer' && !tut.on;
+  $('#chipScore').hidden = !(on && settings.set === 'pointer');
+  updateScore();
+}
+function newTargets() {
+  range.rings.forEach(placeRing); range.pads.forEach(placePad);
+  range.tags = range.delivered = 0; updateScore();
+}
+function updateScore() { $('#chipScore').textContent = `Tags ${range.tags} · Delivered ${range.delivered}`; }
+function tagRing(r) {
+  if (r.userData.pop) return;
+  r.userData.pop = 1; range.tags++; updateScore(); showToast('Tagged', 700);
+}
+// Scores an object that lands in a ring or comes to rest on a pad.
+function checkDelivery(o) {
+  if (!range.group.visible) return;
+  for (const r of range.rings) {
+    if (!r.userData.pop && o.position.distanceTo(r.position) < .8) { r.userData.pop = 1; range.delivered++; updateScore(); showToast('Through the ring', 900, 'reset'); return; }
+  }
+  for (const p of range.pads) {
+    const dx = o.position.x - p.position.x, dz = o.position.z - p.position.z;
+    if (Math.hypot(dx, dz) < .9 && o.position.y - FLOOR_Y < o.userData.halfH * o.scale.x + .8) {
+      p.userData.pulse = 1; range.delivered++; updateScore(); showToast('Delivered', 900, 'reset');
+      setTimeout(() => placePad(p), 900);
+      return;
+    }
+  }
+}
+function updateRange(now, dt) {
+  if (!range.on) return;
+  for (const r of range.rings) {
+    const u = r.userData;
+    r.position.y = u.base + Math.sin(now / 900 + u.phase) * .12;
+    const cp = camPos(); r.lookAt(cp.x, r.position.y, cp.z);
+    if (u.pop) {
+      u.pop -= dt * 2.2;
+      r.scale.setScalar(1 + (1 - Math.max(0, u.pop)) * .9);
+      if (u.pop <= 0) placeRing(r);
+    }
+  }
+  for (const p of range.pads) {
+    if (p.userData.pulse > 0) p.userData.pulse -= dt * 1.5;
+    p.material.emissiveIntensity = .35 + Math.max(0, p.userData.pulse) * 1.2;
+  }
+}
+
+/* ---------- crane: camera up / down ---------- */
+let craneActiveUntil = 0, craneDir = 0;
+let craneLastT = 0;
+function crane(dir, dt, ramp = 1) {
+  const now = performance.now();
+  if (now - craneLastT > 300) snapshot([], 'Crane');   // one undo step per hold
+  craneLastT = now;
+  camTarget.y = clamp(camTarget.y + dir * settings.craneSpeed * ramp * dt, -5, 6);
+  craneActiveUntil = performance.now() + 160; craneDir = dir;
+}
+const heldKeys = new Set();   // Q / E work in every set, like Unity's fly camera
+addEventListener('keyup', e => heldKeys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => heldKeys.clear());
+
+/* ---------- two hands: stretch, clap and dust-off reset ---------- */
+function newPair(a, b) {
+  return { a, b, mode: null, cand: null, candN: 0, offN: 0, cooldown: 0,
+    y0: 0, cam0: 0, d0: 1, s0: 1, target: null,
+    armed: false, lastD: 9, lastBoth: 0, claps: [], strokes: 0, lastDir: null, strokeT: 0 };
+}
+const pairs = { real: newPair('Left', 'Right'), ghost: newPair('GL', 'GR') };
+const MODE_LABEL = { squeeze: 'Stretch · pull apart to grow, together to shrink, hold still for 1×' };
+
+function startPair(P, mode, A, B, now = performance.now()) {
+  P.mode = mode; P.offN = 0;
+  A.pairMode = B.pairMode = mode;
+  if (mode === 'squeeze') {
+    // Resizes the object between your two pinches: the nearest one to the midpoint, within reach of the
+    // line between them (so pinching roughly either side of it is enough).
+    const a = A.pinchPt, b = B.pinchPt;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const span = Math.hypot(b.x - a.x, b.y - a.y);
+    // Pinching anywhere over a large object counts too, so you never need to reach both of its edges.
+    const over = pick(mid, 1.0);
+    let best = free(over) ? over : null, bd = Infinity;
+    if (!best) for (const o of objects) {
+      if (!free(o)) continue;
+      const c = screenOf(o), d = Math.hypot(c.x - mid.x, c.y - mid.y);
+      if (d < Math.max(span * 0.6, screenRadius(o) * 1.5) && d < bd) { bd = d; best = o; }
+    }
+    P.target = best;
+    P.d0 = Math.max(30, span);
+    P.t0 = now; P.maxDev = 0; P.holdDone = false; P.holdProg = 0;
+    if (P.target) { snapshot(P.target, 'Stretch'); P.s0 = P.target.scale.x; P.target.userData.homing = false; P.target.userData.spinBy = 'squeeze'; selected = P.target; }
+  }
+  showToast(MODE_LABEL[mode] + (mode === 'squeeze' && !P.target ? ' · pinch either side of an object' : ''), 0);
+}
+function endPair(P) {
+  if (!P.mode) return;
+  if (P.target) {
+    P.target.userData.spinBy = null;
+    if (P.holdDone) P.target.scale.setScalar(1);   // land exactly on 1× even if released mid-ease
+  }
+  P.mode = null; P.target = null; P.cand = null; P.candN = 0;
+  tracks[P.a].pairMode = tracks[P.b].pairMode = null;
+  hideToast(true);
+}
+function triggerReset(P, source) { P.claps = []; P.strokes = 0; P.lastDir = null; tutEmit('reset:' + source); resetView(source); }
+
+function pairStep(P, now) {
+  const A = tracks[P.a], B = tracks[P.b];
+  const both = A.visible && B.visible;
+  const idle = t => !t.grab && !t.assist && !t.spin;
+
+  // Which sustained mode do the hands ask for?
+  //  · both hands pinching = stretch (resize the object under / between the pinches)
+  let want = null;
+  if (both && now > P.cooldown && idle(A) && idle(B) && settings.squeeze && A.pinching && B.pinching) want = 'squeeze';
+  if (P.mode) {
+    // Stay engaged through brief tracking dropouts: one hand vanishing for a few frames, or a pose flicker.
+    const oneMissing = !both && (A.visible || B.visible);
+    if (want === P.mode) P.offN = 0;
+    else if (++P.offN >= (oneMissing ? 10 : 6)) endPair(P);
+  } else if (want === 'squeeze') {
+    // A two-hand pinch is deliberate enough to start right away.
+    P.candN = P.cand === want ? P.candN + 1 : 1; P.cand = want;
+    if (P.candN >= 2) startPair(P, want, A, B, now);
+  } else { P.cand = null; P.candN = 0; }
+  if (P.mode === 'squeeze' && both && P.target) {
+    // Each stretch is relative to where it started (release and re-pinch to keep going), with a little
+    // extra range per stretch, a magnetic stop at 1×, and pinch-and-hold-still to return to 1×.
+    const ratio = Math.hypot(B.pinchPt.x - A.pinchPt.x, B.pinchPt.y - A.pinchPt.y) / P.d0;
+    P.maxDev = Math.max(P.maxDev, Math.abs(ratio - 1));
+    const holding = P.maxDev < 0.06 && Math.abs(P.s0 - 1) > 0.02;
+    P.holdProg = holding && !P.holdDone ? Math.min(1, (now - P.t0) / 1100) : 0;
+    if (holding && !P.holdDone && P.holdProg >= 1) { P.holdDone = true; showToast('Back to 1×', 900, 'reset'); }
+    let s = P.holdDone ? 1 : P.s0 * Math.pow(ratio, 1.6);
+    if (Math.abs(s - 1) < 0.07) s = 1;
+    s = clamp(s, 0.2, 4);
+    P.target.scale.setScalar(P.target.scale.x + (s - P.target.scale.x) * (P.holdDone ? 0.2 : 0.5));
+  }
+
+  if (now < P.cooldown) return;
+  if (settings.burst && both && idle(A) && idle(B) && !P.mode) burstStep(P, A, B, now);
+  const avgS = both ? (A.scale + B.scale) / 2 : 1;
+
+  // Double clap: palms meet twice within 0.9 s. Overlapping hands often make the tracker drop one,
+  // so losing a hand while they were nearly touching also counts as a clap.
+  if (settings.clap) {
+    if (both) {
+      const dn = Math.hypot(B.palm.x - A.palm.x, B.palm.y - A.palm.y) / avgS;
+      if (dn > 2) P.armed = true;
+      if (P.armed && dn < 1.1) { P.armed = false; clap(P, now); }
+      P.lastD = dn; P.lastBoth = now;
+    } else if (P.armed && P.lastD < 1.8 && now - P.lastBoth < 150 && (A.visible || B.visible)) {
+      P.armed = false; clap(P, now);
+    }
+  }
+
+  // Dust off: palms close together, rubbing back and forth ACROSS each other (not toward each
+  // other, which is squeeze or clap). Three strokes in a row (back, forth, back) resets.
+  if (settings.dust && both) {
+    const lx = B.palm.x - A.palm.x, ly = B.palm.y - A.palm.y, ld = Math.hypot(lx, ly) || 1;
+    const rx = A.vel.x - B.vel.x, ry = A.vel.y - B.vel.y, rs = Math.hypot(rx, ry);
+    if (now - P.strokeT > 600) { P.strokes = 0; P.lastDir = null; }
+    if (ld / avgS < 2.8 && rs / H > 0.45) {
+      const dir = { x: rx / rs, y: ry / rs };
+      const across = Math.abs(dir.x * lx / ld + dir.y * ly / ld) < 0.75;   // within ~40° of perpendicular
+      if (across) {
+        if (!P.lastDir) { P.strokes = 1; P.lastDir = dir; }
+        else if (dir.x * P.lastDir.x + dir.y * P.lastDir.y < -0.5) {
+          P.strokes++; P.lastDir = dir;
+          if (P.strokes >= 3) triggerReset(P, 'dust off');
+        }
+        P.strokeT = now;
+      }
+    }
+  }
+}
+// Burst / crush: both hands change pose (fist -> open, or open -> fist) within half a second of each other,
+// each after holding the first pose for a moment. Poses flicker through 'grab' / 'none' on the way, so each
+// hand remembers when its last fist and last open streaks started and ended rather than its previous pose.
+const BURST = { holdMs: 200, gapMs: 600, syncMs: 500 };
+function poseLog(t, now) {
+  let L = t.poseLog;
+  // A hand that dropped out of view starts fresh, so an old fist can't pair with a new open hand.
+  if (!L || now - L.seen > 250) L = t.poseLog = { fist: { start: -1e9, end: -1e9 }, open: { start: -1e9, end: -1e9 }, last: null };
+  L.seen = now;
+  for (const k of ['fist', 'open']) if (t.gesture === k) { if (L.last !== k) L[k].start = now; L[k].end = now; }
+  if (t.gesture === 'fist' || t.gesture === 'open') L.last = t.gesture;
+  return L;
+}
+function burstStep(P, A, B, now) {
+  const la = poseLog(A, now), lb = poseLog(B, now);
+  const changed = (L, from, to) => L[to].start >= L[from].end - 34 && L[to].start - L[from].end < BURST.gapMs && L[from].end - L[from].start >= BURST.holdMs;
+  for (const [from, to, v, why] of [['fist', 'open', 1, 'fists burst open'], ['open', 'fist', 0, 'hands closed to fists']]) {
+    if (A.gesture !== to || B.gesture !== to) continue;
+    if (!changed(la, from, to) || !changed(lb, from, to)) continue;
+    const at = Math.max(la[to].start, lb[to].start);
+    if (Math.abs(la[to].start - lb[to].start) > BURST.syncMs || P.burstAt === at) continue;
+    P.burstAt = at; if (v > 0) tutEmit('burst');
+    if ((v > 0) !== (modelSettings.explodeTarget > 0)) setExplode(v, P === pairs.real ? why : '');
+  }
+}
+function clap(P, now) {
+  P.claps = P.claps.filter(t => now - t < 900);
+  P.claps.push(now);
+  if (P.claps.length >= 2) triggerReset(P, 'double clap');
+  else showToast('Clap · once more to reset', 900);
+}
+
+/* ---------- toast ---------- */
+const toastEl = $('#toast');
+let toastTimer = 0, toastSticky = false;
+function showToast(text, ms = 1200, kind = '') {
+  clearTimeout(toastTimer);
+  toastEl.textContent = text;
+  toastEl.className = 'toast' + (kind ? ' ' + kind : '');
+  toastEl.hidden = false;
+  toastSticky = !ms;
+  if (ms) toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms);
+}
+function hideToast(onlySticky) { if (!onlySticky || toastSticky) { toastEl.hidden = true; toastSticky = false; } }
+
+/* ---------- mouse / touch fallback ---------- */
+const gl = renderer.domElement;
+let drag = null;
+gl.addEventListener('contextmenu', e => e.preventDefault());
+/* ---------- INPUT PROVIDERS ----------
+   Every provider fills the same HandState (a track) and tags it with `source`; poses, sets, actions,
+   selection and undo never ask where a hand came from.
+     webcam : processResult()  — MediaPipe landmarks, mirrored, Window/Mirror depth from hand size
+     mouse  : updateSim()      — held keys pick the pose, the cursor is the hand, wheel = depth
+     ghost  : driveGhost()     — tutorial keyframes
+     xr     : xrProvider.update() — WebXR hand joints, depth from head-to-hand distance, runtime hand ray */
+
+// WebXR joint names in the MediaPipe 21-point order (metacarpals of the four fingers are skipped).
+const XR_JOINTS = ['wrist', 'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
+  ...['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'].flatMap(f =>
+    [`${f}-phalanx-proximal`, `${f}-phalanx-intermediate`, `${f}-phalanx-distal`, `${f}-tip`])];
+
+const xrProvider = {
+  hands: [], controllers: [], joints3d: {}, lasers: {},
+  init() {
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType('local-floor');
+    for (let i = 0; i < 2; i++) {
+      const hand = renderer.xr.getHand(i), ctl = renderer.xr.getController(i);
+      for (const g of [hand, ctl]) {
+        g.addEventListener('connected', e => { g.userData.handedness = e.data.handedness; g.userData.hasHand = !!e.data.hand; });
+        g.addEventListener('disconnected', () => { g.userData.handedness = null; });
+        rig.add(g);
+      }
+      this.hands.push(hand); this.controllers.push(ctl);
+    }
+    // 3D stand-ins for the 2D overlay, which a headset can't show: joint dots and a laser per hand.
+    for (const id of LABELS) {
+      const dots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.008, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0x6ef0c6 }), 21);
+      dots.visible = false; scene.add(dots); this.joints3d[id] = dots;
+      const laser = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
+        new THREE.LineBasicMaterial({ color: 0x6ef0c6 }));
+      laser.visible = false; laser.frustumCulled = false; scene.add(laser); this.lasers[id] = laser;
+    }
+    renderer.xr.addEventListener('sessionstart', () => {
+      camTarget.copy(CAM_HOME); camTarget.y = -1.6;   // local-floor puts your eyes ~1.6 m up; drop the rig so eye level matches
+      rig.position.copy(camTarget);
+      LABELS.forEach(l => loseTrack(tracks[l]));
+      showToast('VR · hand tracking on', 1500);
+      $('#btnVR').textContent = 'Exit VR';
+    });
+    renderer.xr.addEventListener('sessionend', () => {
+      camTarget.copy(CAM_HOME);
+      LABELS.forEach(l => loseTrack(tracks[l]));
+      Object.values(this.joints3d).forEach(m => { m.visible = false; });
+      Object.values(this.lasers).forEach(m => { m.visible = false; });
+      $('#btnVR').textContent = 'Enter VR';
+    });
+  },
+  async supported() { try { return !!navigator.xr && await navigator.xr.isSessionSupported('immersive-vr'); } catch { return false; } },
+  async toggle() {
+    if (renderer.xr.isPresenting) { renderer.xr.getSession()?.end(); return; }
+    try {
+      const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'hand-tracking'] });
+      await renderer.xr.setSession(session);
+    } catch (err) { showToast(`Couldn't start VR: ${err?.message || err}`, 3000); }
+  },
+  update(now, dt) {
+    const seen = new Set(), head = camPos().clone(), m = new THREE.Matrix4(), q = new THREE.Quaternion();
+    for (const hand of this.hands) {
+      const side = hand.userData.handedness;
+      const wrist = hand.joints?.wrist;
+      if (!side || !wrist || !wrist.visible) continue;
+      const id = side === 'left' ? 'Left' : 'Right', t = tracks[id];
+      const world = XR_JOINTS.map(n => (hand.joints[n] || wrist).getWorldPosition(new THREE.Vector3()));
+      const fresh = !t.present || now - t.lastSeen > 200;
+      t.source = 'xr';
+      t.world = world.map(v => ({ x: v.x, y: v.y, z: v.z }));       // meters; only distances are read from it
+      t.pts = world.map(v => { const p = proj(v); return { x: p.x, y: p.y, z: 0 }; });
+      t.orient = wrist.getWorldQuaternion(new THREE.Quaternion());
+      const w = world[0];
+      t.palmN = new THREE.Vector3().crossVectors(world[5].clone().sub(w), world[17].clone().sub(w)).normalize();
+      t.present = t.visible = true; t.lastSeen = now;
+      seen.add(id);
+      classify(t, dt, fresh);
+      // VR depth cue: farther from the head = bigger, so pushing the hand away sends a held object deeper (Window).
+      t.scale = 100 * head.distanceTo(w) / 0.4;
+      // The runtime's hand ray (target ray space) for the finger gun.
+      const ctl = this.controllers.find(c => c.userData.handedness === side);
+      t.xrRay = ctl ? new THREE.Ray(ctl.getWorldPosition(new THREE.Vector3()),
+        new THREE.Vector3(0, 0, -1).applyQuaternion(ctl.getWorldQuaternion(q))) : null;
+      const dots = this.joints3d[id];
+      world.forEach((v, k) => { m.makeTranslation(v.x, v.y, v.z); dots.setMatrixAt(k, m); });
+      dots.instanceMatrix.needsUpdate = true; dots.visible = true;
+      dots.material.color.set(t.grab || t.assist ? 0xffb04a : 0x6ef0c6);
+    }
+    for (const id of LABELS) {
+      const t = tracks[id];
+      if (seen.has(id)) continue;
+      t.visible = false; this.joints3d[id].visible = false;
+      if (t.present && now - t.lastSeen > 250) loseTrack(t);
+    }
+  },
+  drawLasers() {
+    for (const id of LABELS) {
+      const t = tracks[id], laser = this.lasers[id];
+      laser.visible = !!(renderer.xr.isPresenting && t.aiming && t.ray && t.hit);
+      if (!laser.visible) continue;
+      laser.geometry.setFromPoints([t.ray.origin, t.hit.point]);
+      laser.material.color.set(t.hit.obj && t.hit.obj === rayLock ? 0xffb04a : 0x6ef0c6);
+    }
+  },
+};
+
+/* ---------- keyboard gesture simulator (same keys as the OpenXR device simulator) ---------- */
+const SIM_KEYS = { n: 'poke', m: 'pinch', k: 'grab', l: 'thumb', o: 'open', p: 'fist', j: 'gun' };
+const mouse = { x: innerWidth / 2, y: innerHeight / 2 };
+let simKey = null, simPrevT = 0;
+addEventListener('pointermove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+addEventListener('keyup', e => { if (e.key.toLowerCase() === simKey) simKey = null; });
+addEventListener('blur', () => { simKey = null; });
+
+function updateSim(now) {
+  const t = tracks.Sim;
+  if (!simKey) { if (t.present) loseTrack(t); return false; }
+  const dt = simPrevT ? Math.min(0.1, (now - simPrevT) / 1000) : 1 / 60;
+  simPrevT = now;
+  const g = SIM_KEYS[simKey];
+  const fresh = !t.present;
+  if (fresh) t.scale = 100;              // scroll while holding a key = push/pull
+  t.present = t.visible = true; t.lastSeen = now; t.source = 'mouse';
+  t.gesture = g; t.pinching = g === 'pinch';
+  t.pinchRatio = t.pinching ? 0.2 : 1;
+  t.curl = g === 'grab' || g === 'fist' ? 1.1 : 1.8;
+  t.pinchPt = { x: mouse.x, y: mouse.y };
+  trackMotion(t, { x: mouse.x, y: mouse.y }, { x: mouse.x, y: mouse.y }, dt, fresh);
+  t.world = null;                         // no wrist orientation from a mouse
+  t.aimPt = g === 'gun' ? { x: mouse.x, y: mouse.y } : null;
+  interact(dt, ['Sim']);
+  pointerStep(t, now);
+  return true;
+}
+
+gl.addEventListener('pointerdown', e => {
+  if (simKey) { if (simKey === 'j') tracks.Sim.fireEvt = true; return; }
+  const p = { x: e.offsetX, y: e.offsetY };
+  const o = pick(p, 1);
+  if (!o || o.userData.grabbedBy || o.userData.spinBy) return;
+  selected = o;
+  snapshot(o, 'Move');
+  gl.setPointerCapture(e.pointerId);
+  const mode = e.shiftKey || e.button === 2 ? 'move' : 'rotate';
+  drag = { o, mode, last: p, lastT: performance.now(), offset: o.position.clone().sub(worldAt(p, o.position.z)) };
+  o.userData.spinBy = 'mouse';
+  if (mode === 'rotate') o.userData.angVel.set(0, 0, 0);
+});
+gl.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = { x: e.offsetX, y: e.offsetY }, now = performance.now();
+  const dt = Math.max(1 / 240, (now - drag.lastT) / 1000);
+  if (drag.mode === 'rotate') {
+    const rv = dragRot(p.x - drag.last.x, p.y - drag.last.y, 0.01 * settings.sens);
+    rotateWorld(drag.o, rv);
+    drag.o.userData.angVel.lerp(rv.clone().divideScalar(dt), 0.4).clampLength(0, 15);
+  } else {
+    drag.o.position.copy(worldAt(p, drag.o.position.z).add(drag.offset));
+  }
+  drag.last = p; drag.lastT = now;
+});
+const endDrag = () => {
+  if (!drag) return;
+  if (performance.now() - drag.lastT > 90 || drag.mode === 'move') drag.o.userData.angVel.set(0, 0, 0);
+  drag.o.userData.spinBy = null;
+  drag = null;
+};
+gl.addEventListener('pointerup', endDrag);
+gl.addEventListener('pointercancel', endDrag);
+gl.addEventListener('wheel', e => {
+  if (simKey) {
+    e.preventDefault();
+    tracks.Sim.scale = clamp(tracks.Sim.scale * Math.exp(-e.deltaY * 0.0015), 40, 260);
+    return;
+  }
+  const o = pick({ x: e.offsetX, y: e.offsetY }, 1.3) || selected;
+  if (!o) return;
+  e.preventDefault();
+  snapshotOnce(o, 'Depth');
+  o.position.z = clamp(o.position.z - e.deltaY * 0.004, camPos().z + Z_MIN - 8, camPos().z + Z_MAX - 8);
+}, { passive: false });
+
+/* ---------- overlay drawing ---------- */
+const css = getComputedStyle(document.documentElement);
+const HAND = css.getPropertyValue('--hand').trim(), GRAB = css.getPropertyValue('--grab').trim();
+function drawOverlay() {
+  octx.clearRect(0, 0, W, H);
+  for (const label of LABELS) {
+    const t = tracks[label];
+    if (!settings.skeleton || !t.present || !t.pts) continue;
+    const P = t.pts;
+    const busy = t.grab || t.assist;
+    octx.globalAlpha = t.visible ? 0.9 : 0.35;
+    octx.lineWidth = 2.2; octx.lineCap = 'round';
+    octx.strokeStyle = busy ? GRAB : HAND;
+    octx.beginPath();
+    for (const [a, b] of HAND_LINKS) { octx.moveTo(P[a].x, P[a].y); octx.lineTo(P[b].x, P[b].y); }
+    octx.stroke();
+    octx.fillStyle = '#0d1519';
+    for (const p of P) { octx.beginPath(); octx.arc(p.x, p.y, 3.2, 0, Math.PI * 2); octx.fill(); octx.stroke(); }
+
+    // pinch reticle: closes as fingers approach, fills when holding
+    const r = clamp(t.pinchRatio, 0.2, 1) * 26;
+    octx.beginPath(); octx.arc(t.pinchPt.x, t.pinchPt.y, r, 0, Math.PI * 2);
+    octx.strokeStyle = busy ? GRAB : HAND; octx.lineWidth = 2; octx.stroke();
+    if (busy) { octx.globalAlpha = 0.35; octx.fillStyle = GRAB; octx.fill(); octx.globalAlpha = 0.9; }
+    if (t.spin) {
+      octx.setLineDash([5, 6]); octx.strokeStyle = HAND;
+      octx.beginPath(); octx.arc(t.palm.x, t.palm.y, 34, 0, Math.PI * 2); octx.stroke();
+      octx.setLineDash([]);
+    }
+    drawCues(t, busy);
+    octx.font = '500 11px "IBM Plex Mono", monospace';
+    octx.fillStyle = busy ? GRAB : HAND;
+    octx.fillText(`${label[0]} · ${t.gesture.toUpperCase()}`, P[0].x + 12, P[0].y + 18);
+  }
+  const s = tracks.Sim;
+  if (s.present) {
+    const busy = s.grab || s.assist;
+    octx.globalAlpha = 0.95;
+    octx.strokeStyle = busy ? GRAB : HAND; octx.lineWidth = 2;
+    const r = 14 + (s.scale - 100) * 0.08;
+    octx.beginPath(); octx.arc(mouse.x, mouse.y, Math.max(6, r), 0, Math.PI * 2); octx.stroke();
+    if (busy) { octx.globalAlpha = 0.3; octx.fillStyle = GRAB; octx.fill(); octx.globalAlpha = 0.95; }
+    drawCues(s, busy);
+    octx.font = '500 11px "IBM Plex Mono", monospace';
+    octx.fillStyle = busy ? GRAB : HAND;
+    octx.fillText(`SIM ${simKey?.toUpperCase()} · ${s.gesture.toUpperCase()}`, mouse.x + 22, mouse.y + 4);
+  }
+  for (const g of [tracks.GL, tracks.GR]) if (g.present && g.draw) drawGhost(g);
+  drawPointer();
+  drawGauge();
+  drawStretch();
+  octx.globalAlpha = 1;
+}
+
+// Stretch: a band between the two pinches with the object's current size.
+function drawStretch() {
+  for (const P of Object.values(pairs)) {
+    if (P.mode !== 'squeeze') continue;
+    const A = tracks[P.a], B = tracks[P.b];
+    if (!A.visible || !B.visible) continue;
+    const a = A.pinchPt, b = B.pinchPt;
+    octx.globalAlpha = .9; octx.strokeStyle = GRAB; octx.lineWidth = 2; octx.setLineDash([2, 6]);
+    octx.beginPath(); octx.moveTo(a.x, a.y); octx.lineTo(b.x, b.y); octx.stroke(); octx.setLineDash([]);
+    octx.fillStyle = GRAB;
+    for (const p of [a, b]) { octx.beginPath(); octx.arc(p.x, p.y, 6, 0, Math.PI * 2); octx.fill(); }
+    if (P.target) {
+      octx.font = '600 12px "IBM Plex Mono", monospace';
+      const label = `×${P.target.scale.x.toFixed(2)}`, mx = (a.x + b.x) / 2, my = Math.min(a.y, b.y) - 14;
+      octx.fillText(label, mx - octx.measureText(label).width / 2, my);
+      if (P.holdProg > 0) {   // hold-still-to-reset progress
+        octx.lineWidth = 3;
+        octx.beginPath(); octx.arc(mx, my - 26, 11, -Math.PI / 2, -Math.PI / 2 + P.holdProg * Math.PI * 2); octx.stroke();
+      }
+    }
+  }
+}
+
+// Camera height gauge for the crane: track from -5 (bottom) to +6 (top), tick at eye level.
+function drawGauge() {
+  const y = rig.position.y;
+  const active = performance.now() < craneActiveUntil;
+  if (settings.set !== 'navigate' && Math.abs(y) < 0.05 && !active) return;
+  const x = 22, top = H * .3, bot = H * .7;
+  const toY = v => bot - (v + 5) / 11 * (bot - top);
+  octx.globalAlpha = active ? .95 : .55;
+  octx.strokeStyle = HAND; octx.lineWidth = 2; octx.lineCap = 'round';
+  octx.beginPath(); octx.moveTo(x, top); octx.lineTo(x, bot); octx.stroke();
+  octx.lineWidth = 1.5;
+  octx.beginPath(); octx.moveTo(x - 6, toY(0)); octx.lineTo(x + 6, toY(0)); octx.stroke();
+  octx.fillStyle = active ? GRAB : HAND;
+  octx.beginPath(); octx.arc(x, toY(y), active ? 7 : 5, 0, Math.PI * 2); octx.fill();
+  octx.font = '600 10px "IBM Plex Mono", monospace';
+  octx.fillText(`${y >= 0 ? '+' : ''}${y.toFixed(1)}`, x + 12, toY(y) + 3);
+  octx.fillStyle = HAND; octx.globalAlpha = .55;
+  octx.fillText('EYE', x + 12, toY(0) + 3 + (Math.abs(toY(y) - toY(0)) < 14 ? 14 : 0));
+}
+
+const proj = v => { tmp.copy(v).project(camera); return { x: (tmp.x + 1) / 2 * W, y: (1 - tmp.y) / 2 * H, ok: tmp.z < 1 }; };
+function beamStart(t) {
+  if (t.draw) return ghostScreenPts(t.draw)[8];
+  if (t.pts) return t.pts[8];
+  return { x: mouse.x + 60, y: mouse.y + 90 };   // simulated hand: beam rises from just below the cursor
+}
+function drawPointer() {
+  octx.lineCap = 'round';
+  // locked target: corner brackets
+  if (free(rayLock) || (rayLock && rayLock.userData.grabbedBy)) {
+    const c = proj(rayLock.position), r = screenRadius(rayLock) * 1.05, k = r * .35;
+    if (c.ok) {
+      octx.globalAlpha = .95; octx.strokeStyle = GRAB; octx.lineWidth = 2.5;
+      octx.beginPath();
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const x = c.x + sx * r, y = c.y + sy * r;
+        octx.moveTo(x, y - sy * k); octx.lineTo(x, y); octx.lineTo(x - sx * k, y);
+      }
+      octx.stroke();
+      octx.font = '600 10px "IBM Plex Mono", monospace'; octx.fillStyle = GRAB;
+      octx.fillText('LOCKED', c.x - r, c.y - r - 8);
+    }
+  }
+  // flight destinations: a landing ring on the floor or in the air
+  for (const o of objects) {
+    const F = o.userData.flight;
+    if (!F) continue;
+    const c = proj(F.to);
+    if (!c.ok) continue;
+    const rr = Math.max(6, screenRadius(o) * .6);
+    octx.globalAlpha = .8; octx.strokeStyle = GRAB; octx.lineWidth = 2; octx.setLineDash([4, 5]);
+    octx.beginPath(); octx.ellipse(c.x, c.y, rr, rr * .45, 0, 0, Math.PI * 2); octx.stroke(); octx.setLineDash([]);
+  }
+  // lasers (real, simulated and tutorial ghost hands)
+  for (const t of Object.values(tracks)) {
+    if (!t.aiming || !t.hit) continue;
+    const a = beamStart(t), b = proj(t.hit.point);
+    if (!b.ok) continue;
+    const onLock = t.hit.obj && t.hit.obj === rayLock;
+    const target = t.hit.kind === 'object' || t.hit.kind === 'ring' || t.hit.kind === 'pad';
+    const col = onLock || (target && t.hit.kind !== 'object') ? GRAB : HAND;
+    const fired = performance.now() - t.lastFire < 160;
+    octx.globalAlpha = fired ? .5 : .22; octx.strokeStyle = col; octx.lineWidth = fired ? 12 : 7;
+    octx.beginPath(); octx.moveTo(a.x, a.y); octx.lineTo(b.x, b.y); octx.stroke();
+    octx.globalAlpha = .95; octx.lineWidth = fired ? 3 : 1.8;
+    if (t.hit.kind === 'none') octx.setLineDash([6, 8]);
+    octx.beginPath(); octx.moveTo(a.x, a.y); octx.lineTo(b.x, b.y); octx.stroke(); octx.setLineDash([]);
+    // hit marker: crosshair on things, a ground ellipse on the floor, sized by distance
+    const dist = camPos().distanceTo(t.hit.point), s = clamp(60 / dist, 4, 14);
+    octx.fillStyle = col; octx.strokeStyle = col; octx.lineWidth = 2;
+    if (t.hit.kind === 'floor' || t.hit.kind === 'pad') {
+      octx.beginPath(); octx.ellipse(b.x, b.y, s * 1.6, s * .6, 0, 0, Math.PI * 2); octx.stroke();
+      octx.beginPath(); octx.arc(b.x, b.y, 2.5, 0, Math.PI * 2); octx.fill();
+    } else if (t.hit.kind !== 'none') {
+      octx.beginPath(); octx.arc(b.x, b.y, s, 0, Math.PI * 2); octx.stroke();
+      octx.beginPath();
+      octx.moveTo(b.x - s * 1.7, b.y); octx.lineTo(b.x - s * .6, b.y); octx.moveTo(b.x + s * .6, b.y); octx.lineTo(b.x + s * 1.7, b.y);
+      octx.moveTo(b.x, b.y - s * 1.7); octx.lineTo(b.x, b.y - s * .6); octx.moveTo(b.x, b.y + s * .6); octx.lineTo(b.x, b.y + s * 1.7);
+      octx.stroke();
+    }
+    if (rayLock && !onLock && t.hit.kind !== 'none') {
+      octx.font = '600 10px "IBM Plex Mono", monospace';
+      octx.fillText(t.hit.kind === 'object' ? 'LOCK THIS' : 'SEND HERE', b.x + s + 6, b.y - s - 4);
+    } else if (onLock) {
+      octx.font = '600 10px "IBM Plex Mono", monospace';
+      octx.fillText('SUMMON', b.x + s + 6, b.y - s - 4);
+    }
+  }
+  // shot impacts
+  for (const f of shotFx) {
+    const c = proj(f.p);
+    if (!c.ok) continue;
+    octx.globalAlpha = f.t * .9; octx.strokeStyle = '#f4faf7'; octx.lineWidth = 2;
+    octx.beginPath(); octx.arc(c.x, c.y, 6 + (1 - f.t) * 34, 0, Math.PI * 2); octx.stroke();
+  }
+  octx.globalAlpha = 1;
+}
+function drawCues(t, busy) {
+  if (t.dwellObj && t.dwellT > 0.08 && selected !== t.dwellObj) {   // dwell-select progress at the fingertip
+    octx.strokeStyle = HAND; octx.lineWidth = 3; octx.globalAlpha = .95;
+    octx.beginPath(); octx.arc(t.tip.x, t.tip.y, 14, -Math.PI / 2, -Math.PI / 2 + Math.min(1, t.dwellT / 0.6) * Math.PI * 2); octx.stroke();
+  }
+  if (t.menuHold > 0.25) {   // palm-menu hold progress at the palm
+    octx.strokeStyle = HAND; octx.lineWidth = 2.5; octx.globalAlpha = .8; octx.setLineDash([3, 5]);
+    octx.beginPath(); octx.arc(t.palm.x, t.palm.y, 40, -Math.PI / 2, -Math.PI / 2 + Math.min(1, t.menuHold) * Math.PI * 2); octx.stroke();
+    octx.setLineDash([]);
+  }
+  if (t.gesture === 'poke' && !busy) {
+    octx.fillStyle = HAND;
+    octx.beginPath(); octx.arc(t.tip.x, t.tip.y, 6, 0, Math.PI * 2); octx.fill();
+  }
+  if (settings.crane && (t.gesture === 'thumb' || t.gesture === 'thumbdown')) {
+    // stacked chevrons scrolling the way the camera is going
+    const up = t.gesture === 'thumb', cx = t.palm.x + 54, k = (performance.now() / 400) % 1;
+    octx.strokeStyle = GRAB; octx.lineWidth = 3; octx.lineCap = 'round'; octx.lineJoin = 'round';
+    for (let i = 0; i < 3; i++) {
+      const off = ((i + k) / 3) * 36, y = up ? t.palm.y - off : t.palm.y - 36 + off;
+      octx.globalAlpha = .9 * (1 - Math.abs(off - 18) / 24);
+      octx.beginPath(); octx.moveTo(cx - 9, y + (up ? 6 : -6)); octx.lineTo(cx, y); octx.lineTo(cx + 9, y + (up ? 6 : -6)); octx.stroke();
+    }
+    octx.globalAlpha = .95;
+  }
+  if (t.gesture === 'thumb' && settings.thumb) {
+    const p = Math.min(1, t.thumbHold);
+    octx.strokeStyle = HAND; octx.lineWidth = 3;
+    octx.beginPath(); octx.arc(t.palm.x, t.palm.y - 46, 16, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); octx.stroke();
+  }
+}
+
+/* ---------- highlight + HUD ---------- */
+const glowColor = new THREE.Color();
+let hoveredNow = new Set();
+function updateHighlight(dt) {
+  const hovered = new Set();
+  for (const label of ALL) {
+    const t = tracks[label];
+    if (!t.visible) continue;
+    const p = t.gesture === 'poke' ? t.tip : t.pinching || t.gesture === 'idle' ? t.pinchPt : t.palm;
+    const o = pick(p, 1.2);
+    // A big model's bounding circle covers most of the screen, so it only counts as hovered when the hand is
+    // well inside it (within 70% of its radius), not anywhere nearby.
+    if (o && o.userData.complex) {
+      const c = screenOf(o);
+      if (Math.hypot(p.x - c.x, p.y - c.y) > screenRadius(o) * 0.7) continue;
+    }
+    if (o) hovered.add(o);
+  }
+  flashes = flashes.filter(f => (f.t -= dt * 2.5) > 0);
+  for (const o of objects) {
+    const u = o.userData;
+    let target = 0, color = HAND;
+    if (u.grabbedBy || u.two) { target = 0.32; color = GRAB; }
+    else if (u.spinBy || flashes.some(f => f.obj === o)) target = 0.22;
+    else if (hovered.has(o)) target = 0.1;
+    // No steady tint for the selected object: glow means a hand is interacting with it right now.
+    // Box and Off draw no tint at all (Box marks hover / selection / holding with outlines instead).
+    if (settings.selStyle !== 'glow' && !tut.on) target = 0;
+    u.glow += (target - u.glow) * Math.min(1, dt * 12);
+    glowColor.set(color);
+    for (const m of u.materials) { if (!m.emissive) continue; m.emissive.copy(glowColor); m.emissiveIntensity = u.glow; }
+  }
+  hoveredNow = hovered;
+}
+
+const chipL = $('#chipL'), chipR = $('#chipR'), chipFps = $('#chipFps');
+function updateChips() {
+  for (const [chip, t, k] of [[chipL, tracks.Left, 'L'], [chipR, tracks.Right, 'R']]) {
+    const g = t.present ? t.gesture : 'none';
+    const txt = `${k} · ${g === 'none' ? '—' : g}${t.present && t.source === 'xr' ? ' · vr' : ''}`;
+    if (chip.textContent !== txt) { chip.textContent = txt; chip.dataset.g = g; }
+  }
+}
+
+/* ---------- camera + MediaPipe ---------- */
+let landmarker = null, stream = null, detecting = false, lastVideoTime = -1, lastDetect = 0;
+let fpsCount = 0, fpsT = performance.now();
+const statusEl = $('#status');
+const setStatus = (msg, err = false) => { statusEl.textContent = msg; statusEl.classList.toggle('err', err); };
+
+async function loadLandmarker() {
+  if (landmarker) return landmarker;
+  const vision = await import(`${TASKS_URL}/vision_bundle.mjs`);
+  const fileset = await vision.FilesetResolver.forVisionTasks(`${TASKS_URL}/wasm`);
+  const opts = delegate => ({
+    baseOptions: { modelAssetPath: MODEL_URL, delegate },
+    runningMode: 'VIDEO', numHands: 2,
+    minHandDetectionConfidence: 0.6, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+  });
+  try { landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU')); }
+  catch { landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('CPU')); }
+  return landmarker;
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setStatus('This browser cannot open a camera here. Serve the page from localhost or https.', true);
+    return;
+  }
+  setStatus('Requesting camera and loading hand model…');
+  btnCam.disabled = true;
+  try {
+    const [s] = await Promise.all([
+      navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false }),
+      loadLandmarker(),
+    ]);
+    stream = s;
+    video.srcObject = stream;
+    await video.play();
+    applyVideo(settings.videoMode);
+    cameraDepthDefault();
+    detecting = true;
+    btnCam.textContent = 'Stop camera';
+    setStatus('Tracking · raise a hand and pinch the cube');
+  } catch (err) {
+    const blocked = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    const missing = err && err.name === 'NotFoundError';
+    setStatus(blocked ? 'Camera access was blocked. Allow the camera for this page in your browser settings, then press Start camera.'
+      : missing ? 'No camera found. Connect a webcam and press Start camera.'
+      : `Could not start hand tracking (${err?.message || err}). Check your connection and try again.`, true);
+    btnCam.textContent = 'Start camera';
+  } finally { btnCam.disabled = false; }
+}
+function stopCamera() {
+  detecting = false;
+  stream?.getTracks().forEach(t => t.stop());
+  stream = null; video.srcObject = null;
+  applyVideo(settings.videoMode);
+  LABELS.forEach(l => loseTrack(tracks[l]));
+  btnCam.textContent = 'Start camera';
+  setStatus('Camera off · mouse controls active');
+}
+
+/* ---------- main loop ---------- */
+let last = performance.now();
+function frame() {
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+
+  if (renderer.xr.isPresenting) {
+    // VR: the headset is the input provider; same pipeline as the webcam from here on
+    xrProvider.update(now, dt);
+    interact(dt, LABELS);
+    pairStep(pairs.real, now);
+    for (const l of LABELS) pointerStep(tracks[l], now);
+  } else if (detecting && landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const detDt = lastDetect ? Math.min(0.1, (now - lastDetect) / 1000) : 1 / 30;
+    lastDetect = now;
+    const res = landmarker.detectForVideo(video, now);
+    processResult(res, now, detDt);
+    interact(detDt, LABELS);
+    pairStep(pairs.real, now);
+    for (const l of LABELS) pointerStep(tracks[l], now);
+    fpsCount++;
+  }
+  updateSim(now);
+  updateTutorial(now, dt);
+  const keyDir = (heldKeys.has('e') ? 1 : 0) - (heldKeys.has('q') ? 1 : 0);   // E up, Q down
+  if (keyDir) crane(keyDir * (settings.craneMode === 'camera' ? 1 : -1), dt);
+  updateRange(now, dt);
+  shotFx = shotFx.filter(f => (f.t -= dt * 2.2) > 0);
+  rig.position.lerp(camTarget, Math.min(1, dt * 6));
+  if (now - fpsT > 500) { chipFps.textContent = `${Math.round(fpsCount * 1000 / (now - fpsT))} fps`; fpsCount = 0; fpsT = now; }
+
+  for (const o of objects) {
+    const u = o.userData;
+    if (u.grabbedBy || u.spinBy) continue;
+    if (u.flight) {
+      const F = u.flight;
+      F.t = Math.min(1, F.t + dt / F.dur);
+      const e = F.t * F.t * (3 - 2 * F.t);
+      o.position.lerpVectors(F.from, F.to, e);
+      o.position.y += Math.sin(Math.PI * F.t) * F.h;
+      if (F.t >= 1) { o.position.copy(F.to); u.flight = null; u.angVel.multiplyScalar(0.35); checkDelivery(o); }
+    }
+    if (u.homing) {
+      // homing: true = upright + 1× · 'full' = also back to its home spot · 'goal' = an undo snapshot's pose
+      const goal = u.homing === 'goal' ? u.goal : { q: u.rest, s: 1, p: u.homing === 'full' ? u.home : null };
+      const k = Math.min(1, dt * (u.homing === 'goal' ? 9 : 5));
+      u.angVel.multiplyScalar(Math.exp(-8 * dt));
+      o.quaternion.slerp(goal.q, k);
+      o.scale.setScalar(o.scale.x + (goal.s - o.scale.x) * k);
+      if (goal.p && !u.flight) o.position.lerp(goal.p, k);
+      const settled = o.quaternion.angleTo(goal.q) < 0.005 && Math.abs(o.scale.x - goal.s) < 0.005 &&
+        (!goal.p || o.position.distanceTo(goal.p) < 0.005);
+      if (settled) { o.quaternion.copy(goal.q); o.scale.setScalar(goal.s); if (goal.p) o.position.copy(goal.p); u.homing = false; }
+      continue;
+    }
+    if (u.angVel.lengthSq() > 1e-6) {
+      rotateWorld(o, u.angVel.clone().multiplyScalar(dt));
+      u.angVel.multiplyScalar(Math.exp(-settings.friction * dt));
+    }
+  }
+  updateHighlight(dt);
+  updateSelection();
+  updateCut();
+  updateExplode(dt);
+  updateMenu(now);
+  updateChips();
+  drawOverlay();
+  drawPip();
+  xrProvider.drawLasers();
+  renderer.render(scene, camera);
+}
+
+/* ---------- tutorial: ghost hands perform each gesture on the real cube ---------- */
+// Right-hand landmark templates (21 points, wrist at origin, y up, 1 unit = wrist to middle knuckle).
+const OPEN_HAND = [[0,0],[-.35,.25],[-.62,.5],[-.82,.75],[-.98,1],[-.3,1],[-.35,1.45],[-.38,1.75],[-.4,2],
+  [0,1.05],[0,1.55],[0,1.88],[0,2.15],[.28,1],[.3,1.45],[.32,1.75],[.33,1.98],[.52,.88],[.6,1.2],[.65,1.42],[.68,1.62]];
+const makePose = fn => { const p = OPEN_HAND.map(a => [...a]); fn(p); return p; };
+const fold = (p, m) => { const [x, y] = p[m]; p[m + 1] = [x, y + .28]; p[m + 2] = [x, y + .12]; p[m + 3] = [x, y - .05]; };
+const half = (p, m) => { const [x, y] = p[m]; p[m + 1] = [x, y + .42]; p[m + 2] = [x - .04, y + .56]; p[m + 3] = [x - .06, y + .44]; };
+const tuck = p => { p[2] = [-.45, .42]; p[3] = [-.28, .6]; p[4] = [-.08, .66]; };
+const POSES = {
+  open: OPEN_HAND,
+  pinch: makePose(p => { p[2] = [-.6, .5]; p[3] = [-.68, .85]; p[4] = [-.66, 1.2]; p[6] = [-.42, 1.38]; p[7] = [-.58, 1.42]; p[8] = [-.66, 1.24]; }),
+  poke: makePose(p => { [9, 13, 17].forEach(m => fold(p, m)); tuck(p); }),
+  fist: makePose(p => { [5, 9, 13, 17].forEach(m => fold(p, m)); tuck(p); }),
+  grab: makePose(p => { [5, 9, 13, 17].forEach(m => half(p, m)); p[2] = [-.6, .45]; p[3] = [-.74, .68]; p[4] = [-.66, .92]; }),
+  thumb: makePose(p => { [5, 9, 13, 17].forEach(m => fold(p, m)); p[2] = [-.45, .6]; p[3] = [-.5, 1]; p[4] = [-.52, 1.38]; }),
+  flat: OPEN_HAND.map(([x, y]) => [x * 1.05, y * .3]),   // palm down, fingers toward the screen
+  side: OPEN_HAND.map(([x, y]) => [x * .25, y]),          // palm vertical, edge-on
+  gun: makePose(p => { [9, 13, 17].forEach(m => fold(p, m)); p[2] = [-.52, .55]; p[3] = [-.66, .9]; p[4] = [-.74, 1.24]; }),
+  thumbdown: null,
+  trigger: makePose(p => { [9, 13, 17].forEach(m => fold(p, m)); p[2] = [-.46, .5]; p[3] = [-.42, .78]; p[4] = [-.34, 1]; }),
+};
+POSES.thumbdown = POSES.thumb.map(([x, y]) => [x, -y]);   // the thumbs-up hand turned upside down
+const POSE_GESTURE = { open: 'open', pinch: 'pinch', poke: 'poke', fist: 'fist', grab: 'grab', thumb: 'thumb', thumbdown: 'thumbdown', flat: 'open', side: 'open',
+  gun: 'gun', trigger: 'poke' };
+
+// Keyframes: t (s), at [x, y] in cube radii from the cube's centre (y up), p pose,
+// s hand size (bigger = nearer the screen), tw wrist rotation vector, palm 'down' | 'side'.
+const mirrorKfs = kfs => kfs.map(k => ({ ...k, at: [-k.at[0], k.at[1]], tw: k.tw && [k.tw[0], -k.tw[1], -k.tw[2]] }));
+const sidePair = (pts, palm) => pts.map(([t, x, y]) => ({ t, at: [x, y], p: palm === 'down' ? 'flat' : 'side', palm }));
+const messy = cube => {
+  // Knocked askew, enlarged, up and to the side, camera dropped: everything a reset should undo.
+  cube.position.set(2.4, 1.7, -2); cube.scale.setScalar(1.4);
+  cube.quaternion.setFromEuler(new THREE.Euler(1.1, 2.2, .4));
+  cube.userData.angVel.set(.6, 1.4, .3); camTarget.y = -1.2;
+};
+const STEPS = [
+  { key: 'N', title: 'Poke', dur: 3.2,
+    body: 'Point your index finger and push across the object to nudge it. Off-centre pokes add roll, like flicking a globe.',
+    R: [{ t: 0, at: [2.2, -.2], p: 'poke' }, { t: .6, at: [1.4, -.1], p: 'poke' }, { t: 1.05, at: [-.3, .2], p: 'poke' },
+        { t: 1.35, at: [-1.1, .35], p: 'poke' }, { t: 2, at: [-1.5, .3], p: 'open' }, { t: 3.2, at: [-1.6, .2], p: 'open' }] },
+  { key: 'M', title: 'Pinch to grab', dur: 4.6,
+    body: 'Touch thumb and index finger over the object to pick it up. Move your hand to carry it, open your fingers to let go.',
+    R: [{ t: 0, at: [1.8, -1.4], p: 'open' }, { t: 1.2, at: [0, 0], p: 'open' }, { t: 1.5, at: [0, 0], p: 'pinch' },
+        { t: 2.6, at: [1.3, .7], p: 'pinch' }, { t: 3.4, at: [.1, -.2], p: 'pinch' }, { t: 3.7, at: [.1, -.2], p: 'open' },
+        { t: 4.6, at: [1.2, -1.2], p: 'open' }] },
+  { key: 'M', title: 'Push and pull', dur: 4.8, body: null,   // body depends on Window / Mirror
+    R: [{ t: 0, at: [1.2, -.8], p: 'open' }, { t: 1, at: [0, 0], p: 'open' }, { t: 1.3, at: [0, 0], p: 'pinch' },
+        { t: 2.4, at: [0, 0], p: 'pinch', s: 1.45 }, { t: 3.5, at: [0, 0], p: 'pinch', s: .75 }, { t: 3.9, at: [0, 0], p: 'pinch', s: 1 },
+        { t: 4.2, at: [0, 0], p: 'open' }, { t: 4.8, at: [.9, -1], p: 'open' }] },
+  { key: 'K', title: 'Grab', dur: 4.8,
+    body: 'Close your whole hand around the object to hold it by the palm. Squeezing into a fist keeps your grip; open your hand to drop it.',
+    R: [{ t: 0, at: [-1.6, -1.2], p: 'open' }, { t: 1.1, at: [0, 0], p: 'open' }, { t: 1.4, at: [0, 0], p: 'grab' },
+        { t: 2.5, at: [-1.2, .6], p: 'grab' }, { t: 3, at: [-1.2, .6], p: 'fist' }, { t: 3.7, at: [0, 0], p: 'fist' },
+        { t: 4, at: [0, 0], p: 'open' }, { t: 4.8, at: [.9, -1], p: 'open' }] },
+  { key: 'M', title: 'Twist to rotate', dur: 4.8,
+    body: 'While holding, turn your wrist any way you like and the object turns with it, on every axis. Let go mid-twist to send it spinning.',
+    R: [{ t: 0, at: [1, -1], p: 'open' }, { t: 1, at: [0, 0], p: 'open' }, { t: 1.3, at: [0, 0], p: 'pinch' },
+        { t: 2.3, at: [0, 0], p: 'pinch', tw: [0, 1.2, 0] }, { t: 3.2, at: [0, 0], p: 'pinch', tw: [0, 1.2, .9] },
+        { t: 3.8, at: [0, 0], p: 'pinch', tw: [.9, 0, 0] }, { t: 4, at: [0, 0], p: 'open', tw: [.9, 0, 0] },
+        { t: 4.8, at: [.8, -1], p: 'open' }] },
+  { key: 'P', title: 'Fist to spin', dur: 4.6,
+    body: 'Make a fist over the object and drag, like rolling a trackball. Open your hand and it keeps coasting.',
+    R: [{ t: 0, at: [1.4, -1], p: 'open' }, { t: 1, at: [0, 0], p: 'open' }, { t: 1.3, at: [0, 0], p: 'fist' },
+        { t: 2.1, at: [1, 0], p: 'fist' }, { t: 2.7, at: [1, -.9], p: 'fist' }, { t: 2.9, at: [1, -.9], p: 'open' },
+        { t: 4.6, at: [1.3, -1.2], p: 'open' }] },
+  { key: 'O', title: 'Open hand swipe', dur: 3.4,
+    body: 'Sweep an open palm quickly across the object to flick it. It spins at right angles to your swipe.',
+    R: [{ t: 0, at: [-2.4, .2], p: 'open' }, { t: .8, at: [-2.2, .2], p: 'open' }, { t: 1.15, at: [2.2, -.1], p: 'open' },
+        { t: 3.4, at: [2.4, -.1], p: 'open' }] },
+  { key: 'L', title: 'Thumbs up', dur: 4.4,
+    body: 'A thumbs-up brakes every spinning object. Hold it for a second and the selected object eases back upright.',
+    setup: cube => { cube.userData.angVel.set(2, 4, 1); },
+    R: [{ t: 0, at: [1.6, -1.4], p: 'open' }, { t: .8, at: [1.4, -.6], p: 'thumb' }, { t: 3.3, at: [1.4, -.6], p: 'thumb' },
+        { t: 3.6, at: [1.4, -.6], p: 'open' }, { t: 4.4, at: [1.6, -1.2], p: 'open' }] },
+  { key: '', title: 'Two hands', dur: 5.2,
+    body: 'Pinch the object with both hands. Turn the line between them to roll it, push one hand toward the screen to yaw, spread them to grow it.',
+    R: [{ t: 0, at: [2, -1], p: 'open' }, { t: 1, at: [.75, 0], p: 'open' }, { t: 1.3, at: [.75, 0], p: 'pinch' },
+        { t: 2.5, at: [.6, .6], p: 'pinch' }, { t: 3.5, at: [1.3, .9], p: 'pinch' }, { t: 3.9, at: [1.3, .9], p: 'open' },
+        { t: 5.2, at: [2, 0], p: 'open' }],
+    L: [{ t: 0, at: [-2, -1], p: 'open' }, { t: 1, at: [-.75, 0], p: 'open' }, { t: 1.5, at: [-.75, 0], p: 'pinch' },
+        { t: 2.5, at: [-.6, -.6], p: 'pinch' }, { t: 3.5, at: [-1.3, -.9], p: 'pinch' }, { t: 3.9, at: [-1.3, -.9], p: 'open' },
+        { t: 5.2, at: [-2, 0], p: 'open' }] },
+  { key: 'Q E', title: 'Crane', dur: 5.6,
+    body: 'Thumbs up cranes the camera up; thumbs down cranes it down. It moves at a steady speed while you hold the pose and stops when you relax your hand, like holding E or Q.',
+    R: [{ t: 0, at: [1.6, -1.4], p: 'open' }, { t: .7, at: [1.4, -.6], p: 'thumb' }, { t: 2.2, at: [1.4, -.6], p: 'thumb' },
+        { t: 2.5, at: [1.4, -.6], p: 'open' }, { t: 2.9, at: [1.4, -.2], p: 'thumbdown' }, { t: 4.7, at: [1.4, -.2], p: 'thumbdown' },
+        { t: 5, at: [1.4, -.4], p: 'open' }, { t: 5.6, at: [1.6, -1.2], p: 'open' }] },
+  { key: '', title: 'Pinch to stretch', dur: 4.8,
+    body: 'Pinch with both hands on the object and pull apart to grow it, together to shrink it. For big changes, release and re-pinch to keep going. It snaps at 1×, and pinching both hands and holding still sets it back to 1×.',
+    R: [{ t: 0, at: [2.4, -1], p: 'open' }, { t: .9, at: [1.1, 0], p: 'open' }, { t: 1.1, at: [1.1, 0], p: 'pinch' },
+        { t: 2.2, at: [.7, 0], p: 'pinch' }, { t: 3.5, at: [2, 0], p: 'pinch' }, { t: 3.9, at: [2, 0], p: 'open' },
+        { t: 4.8, at: [2.2, -.6], p: 'open' }] },
+  { key: '', title: 'Double clap to reset', dur: 3.8,
+    body: 'Clap twice, quickly. The camera returns to eye level and every object glides home, upright and full size.',
+    setup: messy,
+    R: sidePair([[0, 1.6, -.5], [.6, 1.4, -.5], [.85, .12, -.5], [1.1, 1, -.5], [1.35, .12, -.5], [1.7, 1.4, -.5], [3.8, 1.6, -.5]], 'side') },
+  { key: '', title: 'Dust off to reset', dur: 3.8,
+    body: 'Brush your palms past each other a few times, like dusting off your hands or a dealer finishing a hand. Same reset as the double clap.',
+    setup: messy,
+    R: sidePair([[0, .9, -.3], [.7, .25, -.3], [.95, .25, .45], [1.2, .25, -.45], [1.45, .25, .45], [1.7, .25, -.45], [2.2, .9, -.3], [3.8, .9, -.3]], 'side'),
+    L: sidePair([[0, -.9, -.3], [.7, -.35, 0], [2.2, -.9, -.3], [3.8, -.9, -.3]], 'side') },
+  { key: 'P O', title: 'Burst to explode', dur: 5.2,
+    body: 'On a loaded model: make two fists, then burst both hands open and the model flies apart into its pieces. Close both open hands into fists to pull it back together. B on the keyboard does the same.',
+    R: [{ t: 0, at: [1.8, -1.2], p: 'open' }, { t: .7, at: [.7, -.1], p: 'open' }, { t: .9, at: [.7, -.1], p: 'fist' },
+        { t: 1.7, at: [.7, -.1], p: 'fist' }, { t: 1.95, at: [1.5, .3], p: 'open' }, { t: 3.3, at: [1.5, .3], p: 'open' },
+        { t: 3.55, at: [.8, 0], p: 'fist' }, { t: 4.4, at: [.8, 0], p: 'fist' }, { t: 5.2, at: [1.8, -1.2], p: 'open' }] },
+  { key: 'J', title: 'Finger gun: lock on', dur: 4.6,
+    body: 'Point your index finger with your thumb up to aim the laser. Drop your thumb onto your finger to fire. Firing at an object locks onto it.',
+    R: [{ t: 0, at: [2.4, -2.2], p: 'open' }, { t: .7, at: [1.9, -1.6], p: 'gun', aim: [2.2, 1.4] },
+        { t: 1.9, at: [1.9, -1.6], p: 'gun', aim: 'obj' }, { t: 2.15, at: [1.9, -1.65], p: 'trigger', aim: 'obj' },
+        { t: 2.6, at: [1.9, -1.6], p: 'gun', aim: 'obj' }, { t: 3.6, at: [1.9, -1.6], p: 'gun', aim: [-1.4, 1.2] },
+        { t: 4.6, at: [2.4, -2.2], p: 'open' }] },
+  { key: 'J', title: 'Send it', dur: 5.4,
+    body: 'With something locked, aim anywhere (the floor, a target, mid-air) and fire. The object hops there in an arc.',
+    R: [{ t: 0, at: [2.4, -2.2], p: 'open' }, { t: .6, at: [1.9, -1.6], p: 'gun', aim: 'obj' }, { t: 1.3, at: [1.9, -1.6], p: 'gun', aim: 'obj' },
+        { t: 1.5, at: [1.9, -1.65], p: 'trigger', aim: 'obj' }, { t: 1.9, at: [1.9, -1.6], p: 'gun', aim: 'obj' },
+        { t: 3, at: [1.9, -1.6], p: 'gun', aim: [-1.8, -1.4] }, { t: 3.4, at: [1.9, -1.6], p: 'gun', aim: [-1.8, -1.4] },
+        { t: 3.6, at: [1.9, -1.65], p: 'trigger', aim: [-1.8, -1.4] }, { t: 4.1, at: [1.9, -1.6], p: 'gun', aim: [-1.8, -1.4] },
+        { t: 5.4, at: [2.4, -2.2], p: 'open' }] },
+  { key: 'J', title: 'Summon', dur: 5,
+    body: 'Lock onto something far away, then fire at it a second time. It flies to you and stops within reach.',
+    setup: cube => { cube.position.set(-2.6, 1.6, -7); cube.userData.angVel.set(0, .4, 0); },
+    R: [{ t: 0, at: [2.4, -2.2], p: 'open' }, { t: .6, at: [1.9, -1.6], p: 'gun', aim: 'obj' }, { t: 1.4, at: [1.9, -1.6], p: 'gun', aim: 'obj' },
+        { t: 1.6, at: [1.9, -1.65], p: 'trigger', aim: 'obj' }, { t: 2, at: [1.9, -1.6], p: 'gun', aim: 'obj' },
+        { t: 2.6, at: [1.9, -1.6], p: 'gun', aim: 'obj' }, { t: 2.8, at: [1.9, -1.65], p: 'trigger', aim: 'obj' },
+        { t: 3.3, at: [1.9, -1.6], p: 'gun', aim: 'obj' }, { t: 5, at: [2.4, -2.2], p: 'open' }] },
+  { key: 'J', title: 'Remote grab', dur: 6,
+    body: 'Lock onto a distant object, then pinch in empty space. Now it follows your hand from afar: move, twist, push and pull it without walking over.',
+    setup: cube => { cube.position.set(2.6, 1.3, -6); cube.userData.angVel.set(0, .4, 0); },
+    R: [{ t: 0, at: [2.2, -2], p: 'open' }, { t: .6, at: [1.9, -1.6], p: 'gun', aim: 'obj' }, { t: 1.4, at: [1.9, -1.6], p: 'gun', aim: 'obj' },
+        { t: 1.6, at: [1.9, -1.65], p: 'trigger', aim: 'obj' }, { t: 2, at: [1.9, -1.6], p: 'gun', aim: 'obj' },
+        { t: 2.5, at: [1.2, -1], p: 'open' }, { t: 2.9, at: [1, -.9], p: 'open' }, { t: 3.2, at: [1, -.9], p: 'pinch' },
+        { t: 4.4, at: [-.6, -.2], p: 'pinch' }, { t: 5, at: [-.6, -.2], p: 'pinch', s: .7 },
+        { t: 5.3, at: [-.6, -.2], p: 'open', s: .7 }, { t: 6, at: [0, -1.6], p: 'open' }] },
+];
+// Single-sided two-hand palm steps get a mirrored left hand.
+for (const s of STEPS) if (s.R && !s.L && (s.R[0].palm || s.title === 'Pinch to stretch' || s.title === 'Burst to explode')) s.L = mirrorKfs(s.R);
+// Which gesture set each demo belongs to; the tutorial plays the active set's steps.
+const STEP_SET = { 'Poke': 'spin', 'Pinch to grab': 'grab', 'Push and pull': 'grab', 'Grab': 'grab', 'Twist to rotate': 'grab',
+  'Fist to spin': 'spin', 'Open hand swipe': 'spin', 'Thumbs up': 'spin', 'Two hands': 'grab', 'Crane': 'navigate',
+  'Pinch to stretch': 'navigate', 'Double clap to reset': 'navigate', 'Dust off to reset': 'navigate', 'Burst to explode': 'navigate',
+  'Finger gun: lock on': 'pointer', 'Send it': 'pointer', 'Summon': 'pointer', 'Remote grab': 'pointer' };
+for (const s of STEPS) s.set = STEP_SET[s.title];
+// What "done" means for each step on the learner's turn. Events come from the actions themselves (tutEmit);
+// state checks compare the demo object with where it started. Either passing completes the step.
+const movedFrom = (o, b, d) => o.position.distanceTo(b.pos) > d;
+const turnedFrom = (o, b, deg) => o.quaternion.angleTo(b.q) > THREE.MathUtils.degToRad(deg);
+const GOALS = {
+  'Poke':                 { hint: 'Poke the cube with your index finger to set it spinning.', ev: ['poke'] },
+  'Pinch to grab':        { hint: 'Pinch the cube and move it somewhere else.', check: (o, b) => b.ev.has('grab:pinch') && movedFrom(o, b, 0.8), done: 'You picked it up and moved it.' },
+  'Push and pull':        { hint: 'Pinch the cube, then move your hand toward or away from the screen.', check: (o, b) => b.ev.has('grab:pinch') && Math.abs(o.position.z - b.pos.z) > 1, done: 'You changed its depth.' },
+  'Grab':                 { hint: 'Close your whole hand on the cube and move it.', check: (o, b) => b.ev.has('grab:grip') && movedFrom(o, b, 0.6), done: 'Palm grip works.' },
+  'Twist to rotate':      { hint: 'Pinch the cube and turn your wrist.', check: (o, b) => !!o.userData.grabbedBy && turnedFrom(o, b, 35), done: 'You turned it with your wrist.' },
+  'Fist to spin':         { hint: 'Make a fist over the cube and drag to roll it.', check: (o, b) => b.ev.has('trackball') && turnedFrom(o, b, 45), done: 'Trackball spin done.' },
+  'Open hand swipe':      { hint: 'Swipe an open hand quickly across the cube.', ev: ['flick'], done: 'Nice flick.' },
+  'Thumbs up':            { hint: 'Give a thumbs up and hold it until the cube settles upright.', ev: ['upright'], done: 'It\'s back upright.' },
+  'Two hands':            { hint: 'Pinch the cube with one hand, then pinch it with the other too.', ev: ['two'], done: 'Two-hand hold works.' },
+  'Crane':                { hint: 'Hold a thumbs up or thumbs down to move the camera.', check: (o, b) => Math.abs(camTarget.y - b.camY) > 1, done: 'You craned the camera.' },
+  'Pinch to stretch':     { hint: 'Pinch both sides of the cube and pull your hands apart (or together).', check: (o, b) => Math.abs(o.scale.x / b.s - 1) > 0.25, done: 'You resized it.' },
+  'Double clap to reset': { hint: 'Clap twice, quickly.', ev: ['reset:double clap'], done: 'Everything reset.' },
+  'Dust off to reset':    { hint: 'Brush your palms past each other a few times.', ev: ['reset:dust off'], done: 'Dusted off and reset.' },
+  'Burst to explode':     { hint: 'Make two fists, then burst both hands open.', ev: ['burst'], done: 'That\'s the explode gesture. On a loaded model the parts fly apart.' },
+  'Finger gun: lock on':  { hint: 'Aim the finger gun at the cube and drop your thumb to fire.', ev: ['lock'], done: 'Locked on.' },
+  'Send it':              { hint: 'Lock onto the cube, then fire at the floor or a spot in the air.', ev: ['send'], done: 'Sent.' },
+  'Summon':               { hint: 'Lock onto the cube, then fire at it again.', ev: ['summon'], done: 'Summoned.' },
+  'Remote grab':          { hint: 'Lock onto the cube, then pinch in empty space and move your hand.', ev: ['remote'], done: 'Remote grab works.' },
+};
+// Flow per step: the demo plays once, then it's your turn. You get TRY_SECS of trying (the clock starts when
+// your hand appears or you press a gesture key). Not done by then: the demo replays once, then Try again / Skip.
+const TRY_SECS = 15;
+const tutGoal = { on: false, base: null, done: false, t: 0, started: false, fails: 0, replay: false };
+function tutEmit(name) { if (tut.on && !tut.playing && tutGoal.base) tutGoal.base.ev.add(name); }
+function tutStartGoal() {
+  const step = curSteps()[tut.i], g = GOALS[step.title], o = objects[0];
+  tutGoal.on = !!g && !!o; tutGoal.done = false; tutGoal.t = 0; tutGoal.started = false; tutGoal.prompt = false;
+  document.body.classList.add('tut-turn');
+  // Two-hand steps can't be done with the mouse: say so and offer Skip straight away.
+  const needsCam = !stream && !step.key;
+  $('#tutRetry').hidden = !needsCam;
+  $('#tutRetryAgain').hidden = needsCam;
+  $('#tutRetryText').textContent = 'This one needs both hands on camera. Start the camera from the panel, or skip it.';
+  tutGoal.base = o ? { pos: o.position.clone(), q: o.quaternion.clone(), s: o.scale.x, camY: camTarget.y, ev: new Set() } : null;
+  $('#tutGoal').hidden = !tutGoal.on; if (g) $('#tutGoal').textContent = `Copy the gesture: ${g.hint}`;
+  $('#tutDone').hidden = true;
+}
+function tutCheckGoal() {
+  if (!tutGoal.on || tutGoal.done || tut.playing) return;
+  const step = curSteps()[tut.i], g = GOALS[step.title], o = objects[0], b = tutGoal.base;
+  const ok = (g.ev && g.ev.some(e => b.ev.has(e))) || (g.check && o && g.check(o, b));
+  if (!ok) return;
+  tutGoal.done = true;
+  const list = curSteps(), last = tut.i === list.length - 1, ids = Object.keys(SETS), nextSet = ids[ids.indexOf(settings.set) + 1];
+  $('#tutDoneText').textContent = g.done || `You did the ${step.title.toLowerCase()} gesture.`;
+  $('#tutDoneNext').textContent = (!last ? `Next: ${list[tut.i + 1].title} →` : nextSet ? `Next set: ${SETS[nextSet].name} →` : 'Finish tutorial') + '  ⏎';
+  $('#tutDoneNext').title = 'Enter';
+  $('#tutGoal').hidden = true; $('#tutDone').hidden = false; $('#tutRetry').hidden = true;
+  showToast('Great job!', 1200, 'reset');
+  tutGoal.arm = false; tutGoal.hold = 0;
+  $('#tutDoneText').textContent += stream ? ' Move on: drag it into Next, hover Next, or thumbs up.' : ' Move on: drag it into Next, or click Next.';
+}
+const curSteps = () => STEPS.filter(s => s.set === settings.set);
+function tutSetTabs() {
+  document.querySelectorAll('[data-tset]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tset === settings.set)));
+}
+const pushPullBody = () => settings.depthMode === 'window'
+  ? 'While holding, push your hand toward the screen to send the object deeper, and pull back to bring it to you. (Window mode)'
+  : 'While holding, move your hand toward the screen to bring the object toward you, like your reflection. (Mirror mode)';
+
+const tut = { on: false, i: 0, time: 0, playing: true, c: { x: 0, y: 0 }, R0: 100, stash: [] };
+const ease = u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
+
+function sampleKfs(kfs, time) {
+  let i = 0;
+  while (i < kfs.length - 1 && kfs[i + 1].t <= time) i++;
+  const a = kfs[i], b = kfs[Math.min(i + 1, kfs.length - 1)];
+  const e = b.t > a.t ? ease(clamp((time - a.t) / (b.t - a.t), 0, 1)) : 0;
+  const L = (p, q) => p + (q - p) * e;
+  const ta = a.tw || [0, 0, 0], tb = b.tw || [0, 0, 0];
+  // aim: a screen point in cube radii, or 'obj' = wherever the demo object currently is
+  const resolveAim = v => {
+    if (v !== 'obj') return v;
+    const o = objects[0];
+    if (!o) return [0, 0];
+    const c = screenOf(o);
+    return [(c.x - tut.c.x) / tut.R0, (tut.c.y - c.y) / tut.R0];
+  };
+  const aa = a.aim && resolveAim(a.aim), ab = (b.aim && resolveAim(b.aim)) || aa;
+  const aim = aa ? [L(aa[0], ab[0]), L(aa[1], ab[1])] : null;
+  return { x: L(a.at[0], b.at[0]), y: L(a.at[1], b.at[1]), s: L(a.s ?? 1, b.s ?? 1),
+    tw: [0, 1, 2].map(k => L(ta[k], tb[k])), pa: a.p, pb: b.p, e, g: POSE_GESTURE[a.p], palm: a.palm, aim };
+}
+const anchorOf = (pts, g) => g === 'pinch' ? { x: (pts[4][0] + pts[8][0]) / 2, y: (pts[4][1] + pts[8][1]) / 2 }
+  : g === 'poke' || g === 'gun' ? { x: pts[8][0], y: pts[8][1] }
+  : [0, 5, 9, 13, 17].reduce((a, i) => ({ x: a.x + pts[i][0] / 5, y: a.y + pts[i][1] / 5 }), { x: 0, y: 0 });
+
+function driveGhost(t, kfs, side, dt) {
+  if (!kfs || !tut.playing) { if (t.present) loseTrack(t); return; }
+  const s = sampleKfs(kfs, tut.time);
+  const pos = { x: tut.c.x + s.x * tut.R0, y: tut.c.y - s.y * tut.R0 };
+  const fresh = !t.present;
+  t.present = t.visible = true; t.source = 'ghost';
+  t.gesture = s.g; t.pinching = s.g === 'pinch'; t.pinchRatio = t.pinching ? .15 : .9;
+  t.curl = s.g === 'grab' || s.g === 'fist' ? 1.1 : 1.8;
+  t.scale = tut.R0 * .42 * s.s;
+  t.pinchPt = pos;
+  trackMotion(t, pos, pos, dt, fresh);
+  t.palmN = s.palm === 'down' ? new THREE.Vector3(0, -1, 0) : s.palm === 'side' ? new THREE.Vector3(side === 'L' ? 1 : -1, 0, 0) : new THREE.Vector3(0, 0, 1);
+  t.ghostQ = rotVecToQuat(new THREE.Vector3(...s.tw));
+  t.world = null;
+  // Finger gun: aim at a screen point; thumb dropping (gun -> trigger) fires once.
+  t.aimPt = s.aim ? { x: tut.c.x + s.aim[0] * tut.R0, y: tut.c.y - s.aim[1] * tut.R0 } : null;
+  if (t.prevG === 'gun' && s.g === 'poke' && s.pa === 'trigger') t.fireEvt = true;
+  t.prevG = s.g;
+  let roll = s.tw[2];
+  if (t.aimPt) {   // turn the drawn hand so the index finger points at the target
+    const vx = t.aimPt.x - pos.x, vy = pos.y - t.aimPt.y;
+    roll = Math.atan2(-vx, vy) * (side === 'L' ? -1 : 1);
+  }
+  // Shape for drawing: blend the two poses; fake the wrist's yaw/pitch by squashing the drawing.
+  const A = POSES[s.pa], B = POSES[s.pb];
+  const pts = A.map((p, k) => [p[0] + (B[k][0] - p[0]) * s.e, p[1] + (B[k][1] - p[1]) * s.e]);
+  const ga = POSE_GESTURE[s.pa], gb = POSE_GESTURE[s.pb];
+  const a1 = anchorOf(pts, ga), a2 = anchorOf(pts, gb);
+  t.draw = { pts, pos, mirror: side === 'L', unit: t.scale, roll: t.aimPt ? roll : s.tw[2] * (side === 'L' ? -1 : 1),
+    sx: Math.max(.3, Math.cos(s.tw[1])), sy: Math.max(.3, Math.cos(s.tw[0])),
+    anchor: { x: a1.x + (a2.x - a1.x) * s.e, y: a1.y + (a2.y - a1.y) * s.e } };
+}
+
+function ghostScreenPts(D) {
+  const cs = Math.cos(D.roll), sn = Math.sin(D.roll), m = D.mirror ? -1 : 1;
+  const tf = ([x, y]) => {
+    x = (x - D.anchor.x) * D.sx * m; y = (y - D.anchor.y) * D.sy;
+    const rx = x * cs - y * sn * m, ry = x * sn * m + y * cs;
+    return { x: D.pos.x + rx * D.unit, y: D.pos.y - ry * D.unit };
+  };
+  return D.pts.map(tf);
+}
+function drawGhost(t) {
+  const P = ghostScreenPts(t.draw);
+  const busy = t.grab || t.assist || t.pairMode;
+  octx.globalAlpha = .95; octx.lineCap = 'round'; octx.lineJoin = 'round';
+  octx.strokeStyle = 'rgba(244, 250, 247, .35)'; octx.lineWidth = 9;      // soft halo
+  octx.beginPath(); for (const [a, b] of HAND_LINKS) { octx.moveTo(P[a].x, P[a].y); octx.lineTo(P[b].x, P[b].y); } octx.stroke();
+  octx.strokeStyle = busy ? GRAB : '#f4faf7'; octx.lineWidth = 3;
+  octx.beginPath(); for (const [a, b] of HAND_LINKS) { octx.moveTo(P[a].x, P[a].y); octx.lineTo(P[b].x, P[b].y); } octx.stroke();
+  octx.fillStyle = busy ? GRAB : HAND;
+  for (const p of P) { octx.beginPath(); octx.arc(p.x, p.y, 3, 0, Math.PI * 2); octx.fill(); }
+  drawCues(t, t.grab || t.assist);
+  octx.font = '600 11px "IBM Plex Mono", monospace'; octx.fillStyle = '#f4faf7';
+  octx.fillText(`DEMO · ${t.gesture.toUpperCase()}`, P[0].x - 30, P[0].y + 22);
+}
+
+function stashScene() {
+  for (const l of ALL) loseTrack(tracks[l]);
+  tut.stash = objects.splice(0);
+  tut.undo = undoStack.splice(0);
+  closeMenu();
+  tut.stash.forEach(o => { scene.remove(o); o.userData.spinBy = null; o.userData.grabbedBy = null; });
+}
+function restoreScene() {
+  while (objects.length) removeObject(objects[0]);
+  tut.stash.forEach(o => { scene.add(o); objects.push(o); });
+  tut.stash = [];
+  undoStack.splice(0, undoStack.length, ...(tut.undo || []));
+  selected = objects[objects.length - 1] || null;
+  camTarget.copy(CAM_HOME);
+}
+
+function tutGo(i) {
+  const list = curSteps();
+  const ni = (i + list.length) % list.length;
+  if (ni !== tut.i || tut.set !== settings.set) tutGoal.fails = 0;
+  tutGoal.replay = false;
+  tut.i = ni; tut.set = settings.set; tut.takeT = 0;
+  tut.handsAtStart = Object.fromEntries(realHands().map(t => [t.label, t.gesture]));
+  tutGoal.prompt = false;
+  document.body.classList.remove('tut-turn');
+  tut.time = 0;
+  loseTrack(tracks.GL); loseTrack(tracks.GR);
+  for (const P of Object.values(pairs)) { endPair(P); P.claps = []; P.strokes = 0; P.cooldown = 0; }
+  rayLock = null; shotFx = [];
+  resetScene();
+  rig.position.copy(CAM_HOME); camTarget.copy(CAM_HOME);
+  rig.updateMatrixWorld(true);
+  const cube = objects[0];
+  cube.userData.angVel.set(0, 0, 0);
+  tut.c = screenOf(cube); tut.R0 = screenRadius(cube);
+  const step = curSteps()[tut.i];
+  step.setup?.(cube);
+  cube.userData.home.set(0, 0, 0);
+  $('#tutCount').textContent = `${SETS[settings.set].name} · ${tut.i + 1} / ${curSteps().length}`;
+  $('#tutKey').textContent = step.key;
+  $('#tutTitle').textContent = step.title;
+  $('#tutBody').textContent = step.body ?? pushPullBody();
+  $('#tutDepth').hidden = !['Push and pull', 'Remote grab'].includes(step.title);
+  tutGoal.on = false; $('#tutGoal').hidden = true; $('#tutDone').hidden = true;
+  $('#tutRetry').hidden = true;
+}
+function setTurn(playing) {
+  tut.playing = playing;
+  $('#tutTurn').textContent = playing ? 'Your turn' : 'Watch';
+  if (!playing) {
+    loseTrack(tracks.GL); loseTrack(tracks.GR);   // the demo hand leaves so it can't get in your way
+    const step = curSteps()[tut.i];
+    showToast(stream ? 'Your turn · copy the gesture'
+      : step.key ? `Your turn · hold ${step.key} and move the mouse` : 'Your turn · start the camera to try two-hand gestures', 2000);
+    tutStartGoal();
+  } else tutGo(tut.i);
+}
+// After a missed try the demo replays once, then this asks what next. Nothing is timed or checked meanwhile.
+function tutShowPrompt() {
+  tut.playing = false; tutGoal.on = false; tutGoal.prompt = true; tutGoal.arm = false; tutGoal.hold = 0;
+  loseTrack(tracks.GL); loseTrack(tracks.GR);
+  document.body.classList.remove('tut-turn');
+  $('#tutTurn').textContent = 'Watch';
+  $('#tutGoal').hidden = true; $('#tutDone').hidden = true;
+  $('#tutRetryAgain').hidden = false; $('#tutRetry').hidden = false;
+  $('#tutRetryText').textContent = 'Want another go? Copy the gesture, or skip this one. (Thumbs up = try again, thumbs down = skip)';
+}
+// Scene targets for moving on: "Next" after a pass, "Again" + "Skip" at the try-again choice. A hand held
+// over one for 0.9 s, the demo object dragged into "Next", or a click all count.
+const TARGET_R = 66, TARGET_DWELL = 0.9;
+let tutTargetEls = {};
+function tutTargetSpecs() {
+  const right = W - 150, left = 150, y = H * 0.42;
+  if (!$('#tutDone').hidden) return [{ id: 'next', label: 'Next', sub: 'hover · drag here', x: right, y, c: 'var(--hand)', act: () => $('#tutDoneNext').click(), drop: true }];
+  if (tutGoal.prompt) return [
+    { id: 'again', label: 'Again', sub: 'hover to retry', x: left, y, c: 'var(--grab)', act: () => $('#tutRetryAgain').click() },
+    { id: 'skip', label: 'Skip', sub: 'hover to skip', x: right, y, c: 'var(--muted)', act: () => $('#tutRetrySkip').click() }];
+  return [];
+}
+function updateTutTargets(dt) {
+  const specs = tut.on ? tutTargetSpecs() : [], box = $('#tutTargets'), ids = new Set(specs.map(t => t.id));
+  for (const id of Object.keys(tutTargetEls)) if (!ids.has(id)) { tutTargetEls[id].el.remove(); delete tutTargetEls[id]; }
+  const hands = realHands(), obj = objects[0], oc = obj ? screenOf(obj) : null;
+  for (const sp of specs) {
+    let T = tutTargetEls[sp.id];
+    if (!T) {
+      const el = document.createElement('div'); el.className = 'tut-target';
+      el.innerHTML = `<div><b>${sp.label}</b><small>${sp.sub}</small></div>`;
+      el.addEventListener('click', () => sp.act());
+      box.append(el); T = tutTargetEls[sp.id] = { el, dwell: 0 };
+    }
+    T.el.style.left = `${sp.x}px`; T.el.style.top = `${sp.y}px`; T.el.style.setProperty('--c', sp.c);
+    const near = p => p && Math.hypot(p.x - sp.x, p.y - sp.y) < TARGET_R;
+    const over = hands.some(t => near(t.palm) || near(t.tip) || near(t.pinchPt));
+    const dropped = sp.drop && oc && near(oc);
+    T.dwell = over ? T.dwell + dt : 0;
+    T.el.classList.toggle('hot', over || dropped);
+    T.el.style.setProperty('--p', Math.min(1, T.dwell / TARGET_DWELL));
+    if (dropped || T.dwell >= TARGET_DWELL) { T.dwell = 0; sp.act(); }
+  }
+}
+// Demo takeover: a real hand that appears, or changes pose, and stays that way for 0.3 s means you've started.
+function realHands() { return ['Left', 'Right'].map(l => tracks[l]).filter(t => t.visible && t.source !== 'ghost'); }
+function tutWatchTakeover(dt) {
+  if (simKey) return true;
+  const start = tut.handsAtStart || {};
+  const acting = realHands().some(t => t.gesture !== 'none' && (!(t.label in start) || start[t.label] !== t.gesture));
+  tut.takeT = acting ? (tut.takeT || 0) + dt : 0;
+  return tut.takeT >= 0.3;
+}
+// Thumbs-up to go on: only while "Great job" or the Try again / Skip choice is showing, held 0.6 s, and only
+// after your thumb has come down first (so the thumbs-up that passed a step doesn't skip the next one).
+function tutGestureNav(dt) {
+  const hands = realHands();
+  const up = hands.some(t => t.gesture === 'thumb'), down = hands.some(t => t.gesture === 'thumbdown');
+  if (!up && !down) { tutGoal.arm = true; tutGoal.hold = 0; return; }
+  if (!tutGoal.arm) return;
+  tutGoal.hold = (tutGoal.hold || 0) + dt;
+  if (tutGoal.hold < 0.6) return;
+  tutGoal.arm = false; tutGoal.hold = 0;
+  if (!$('#tutDone').hidden) { if (up) $('#tutDoneNext').click(); }
+  else if (tutGoal.prompt) $(up ? '#tutRetryAgain' : '#tutRetrySkip').click();
+}
+function tutStart() {
+  if (tut.on) return;
+  tut.on = true;
+  $('#gate').hidden = true;
+  $('#tutor').hidden = false;
+  document.body.classList.add('tutoring');
+  stashScene();
+  range.group.visible = false;
+  tut.playing = true; $('#tutTurn').textContent = 'Your turn';
+  tutSetTabs();
+  tutGo(0);
+}
+document.querySelectorAll('[data-tset]').forEach(b => b.addEventListener('click', () => applySet(b.dataset.tset)));
+function tutExit() {
+  if (!tut.on) return;
+  tut.on = false;
+  updateTutTargets(0);
+  loseTrack(tracks.GL); loseTrack(tracks.GR);
+  $('#tutor').hidden = true;
+  document.body.classList.remove('tutoring');
+  restoreScene();
+  rayLock = null;
+  range.group.visible = range.on && settings.set === 'pointer';
+}
+function updateTutorial(now, dt) {
+  if (!tut.on) return;
+  const step = curSteps()[tut.i];
+  if (tut.playing) {
+    tut.time += dt;
+    // Demo plays once. If your hand starts moving first, it hands over straight away.
+    if (tut.time > 0.5 && tutWatchTakeover(dt)) { setTurn(false); return; }
+    if (tut.time > step.dur + .9) { if (tutGoal.replay) tutShowPrompt(); else setTurn(false); return; }
+    driveGhost(tracks.GR, step.R, 'R', dt);
+    driveGhost(tracks.GL, step.L, 'L', dt);
+    interact(dt, ['GL', 'GR']);
+    pairStep(pairs.ghost, now);
+    pointerStep(tracks.GL, now); pointerStep(tracks.GR, now);
+  }
+  if (!tut.playing && tutGoal.on && !tutGoal.done) {
+    // The try clock runs once a hand is in view (or a gesture key is held), so you aren't timed while getting ready.
+    if (!tutGoal.started) tutGoal.started = !!simKey || tracks.Left.visible || tracks.Right.visible;
+    if (tutGoal.started) tutGoal.t += dt;
+    if (tutGoal.t >= TRY_SECS && !(!stream && !step.key)) {
+      tutGoal.fails++;
+      showToast('Not quite · watch it once more', 1600);
+      $('#tutRetry').hidden = true;
+      tutGo(tut.i); tutGoal.replay = true; tut.playing = true; $('#tutTurn').textContent = 'Your turn';
+      $('#tutGoal').hidden = false; $('#tutGoal').textContent = 'Watch once more';
+      return;
+    }
+  }
+  if (!$('#tutDone').hidden || tutGoal.prompt) tutGestureNav(dt);
+  updateTutTargets(dt);
+  $('#tutBar').style.width = `${tut.playing ? Math.min(100, tut.time / step.dur * 100) : tutGoal.on && !tutGoal.done ? Math.min(100, tutGoal.t / TRY_SECS * 100) : 0}%`;
+  tutCheckGoal();
+}
+
+/* ---------- loaded 3D models (.glb / .gltf) ----------
+   A big model (the animal cell: ~2,000 meshes, ~750k triangles) is merged into one mesh per material so it
+   draws in ~20 calls, re-centred, and scaled to about twice the cube. It's picked by its bounding sphere,
+   never by triangle raycasts, so hand tracking stays smooth. */
+const MODEL_SIZE = 3.2;                       // longest side after loading, in scene units
+const cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+const modelSettings = { fast: true, cut: 0, explode: 0, explodeTarget: 0 };
+// Explode: every original piece slides outward along the line from the model's centre through the piece's centre.
+// Done in the vertex shader from a per-vertex 'pieceCenter' attribute, so the merged model keeps its ~20 draw calls.
+const EXPLODE_K = 1.4;                        // at 100%, a piece moves 1.4x its distance from the centre
+const explodeU = { value: 0 };
+function setupExplode(m) {
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uExplode = explodeU;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 pieceCenter;\nuniform float uExplode;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed += pieceCenter * uExplode;');
+  };
+  m.customProgramCacheKey = () => 'explode';
+  m.needsUpdate = true;
+}
+function setExplode(v, why) {
+  const had = objects.some(o => o.userData.complex);
+  if (!had) { if (why && !tut.on) showToast('Explode works on a loaded model (Load 3D model…)', 1800); return; }
+  modelSettings.explodeTarget = clamp(v, 0, 1);
+  const r = $('#r-explode'); if (r) { r.value = modelSettings.explodeTarget; $('#o-explode').textContent = `${Math.round(modelSettings.explodeTarget * 100)}%`; }
+  if (why) showToast(modelSettings.explodeTarget > 0 ? `Explode · ${why}` : `Collapse · ${why}`, 1000);
+}
+function updateExplode(dt) {
+  const e = modelSettings.explode += (modelSettings.explodeTarget - modelSettings.explode) * Math.min(1, dt * 5);
+  explodeU.value = e * EXPLODE_K;
+  for (const o of objects) if (o.userData.complex) o.userData.radius = o.userData.baseRadius * (1 + e * EXPLODE_K);
+}
+// Compressed models load too: meshopt (glTF-Transform's `meshopt` command, the one we use for hosting) and Draco.
+const gltfLoader = new GLTFLoader()
+  .setMeshoptDecoder(MeshoptDecoder)
+  .setDRACOLoader(new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'));
+// Compressed files store positions and normals as small integers (KHR_mesh_quantization). Baking the
+// node transform into them would overflow, and merging needs matching types, so expand them to floats first.
+function toFloatAttributes(g) {
+  for (const [name, a] of Object.entries(g.attributes)) {
+    if (a.array instanceof Float32Array && !a.isInterleavedBufferAttribute) continue;
+    const n = a.count, k = a.itemSize, out = new Float32Array(n * k);
+    for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) out[i * k + j] = a.getComponent ? a.getComponent(i, j) : [a.getX(i), a.getY(i), a.getZ(i), a.getW(i)][j];
+    g.setAttribute(name, new THREE.BufferAttribute(out, k));
+  }
+  return g;
+}
+
+// Parts grouped in Blender: an Empty with the custom property part_kind = "organelle" (exported as glTF
+// extras, which three.js puts in userData). Every mesh under it explodes as one unit, from the part's centre.
+function findParts(root) {
+  const parts = [];
+  root.traverse(o => {
+    if (o.userData?.part_kind !== 'organelle') return;
+    const box = new THREE.Box3().setFromObject(o);
+    if (box.isEmpty()) return;
+    parts.push({ node: o, name: o.userData.part_name || o.name, center: box.getCenter(new THREE.Vector3()), meshes: 0 });
+  });
+  return parts;
+}
+function partOf(o, parts) {
+  for (let n = o; n; n = n.parent) { const p = parts.find(x => x.node === n); if (p) return p; }
+  return null;
+}
+function mergeByMaterial(root) {
+  root.updateMatrixWorld(true);
+  const groups = new Map(), parts = findParts(root);
+  let meshCount = 0, tris = 0;
+  root.traverse(o => {
+    if (!o.isMesh || !o.geometry?.attributes?.position) return;
+    meshCount++;
+    const g = toFloatAttributes(o.geometry.clone()).applyMatrix4(o.matrixWorld);
+    g.computeBoundingBox();
+    const part = partOf(o, parts);
+    if (part) part.meshes++;
+    // Fresh userData: clones of a shared geometry (compressed files reuse one ribosome mesh) share it otherwise.
+    g.userData = { pieceCenter: part ? part.center.clone() : g.boundingBox.getCenter(new THREE.Vector3()) };
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+    if (!groups.has(mat)) groups.set(mat, []);
+    groups.get(mat).push(g);
+  });
+  const out = new THREE.Group(), box = new THREE.Box3();
+  for (const [mat, geos] of groups) {
+    // Keep only attributes every piece has (position, normal, colour); give every piece an index so they merge.
+    const common = ['position', 'normal', 'color'].filter(n => geos.every(g => g.attributes[n]));
+    for (const g of geos) {
+      for (const n of Object.keys(g.attributes)) if (!common.includes(n)) g.deleteAttribute(n);
+      g.morphAttributes = {};
+      if (!g.attributes.normal) g.computeVertexNormals();
+      // Every vertex carries its piece's centre, for the explode view.
+      const pc = g.userData.pieceCenter, n = g.attributes.position.count, a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { a[i * 3] = pc.x; a[i * 3 + 1] = pc.y; a[i * 3 + 2] = pc.z; }
+      g.setAttribute('pieceCenter', new THREE.BufferAttribute(a, 3));
+      if (!g.index) {
+        const c = g.attributes.position.count, idx = new Uint32Array(c);
+        for (let i = 0; i < c; i++) idx[i] = i;
+        g.setIndex(new THREE.BufferAttribute(idx, 1));
+      }
+    }
+    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
+    if (!merged) continue;
+    tris += (merged.index ? merged.index.count : merged.attributes.position.count) / 3;
+    out.add(new THREE.Mesh(merged, mat));
+    merged.computeBoundingBox(); box.union(merged.boundingBox);
+  }
+  // Re-centre on the origin and scale so the longest side is MODEL_SIZE (baked into the geometry).
+  const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+  const k = MODEL_SIZE / Math.max(size.x, size.y, size.z, 1e-6);
+  const bounds = new THREE.Box3();
+  for (const m of out.children) {
+    m.geometry.translate(-c.x, -c.y, -c.z); m.geometry.scale(k, k, k);
+    // translate/scale only touch position and normal; move the piece centres into the same space by hand
+    const pc = m.geometry.attributes.pieceCenter.array;
+    for (let i = 0; i < pc.length; i += 3) { pc[i] = (pc[i] - c.x) * k; pc[i + 1] = (pc[i + 1] - c.y) * k; pc[i + 2] = (pc[i + 2] - c.z) * k; }
+    m.frustumCulled = false;   // exploded pieces reach outside the stored bounds
+    m.geometry.computeBoundingBox(); m.geometry.computeBoundingSphere(); bounds.union(m.geometry.boundingBox);
+  }
+  return { group: out, meshCount, drawCalls: out.children.length, tris: Math.round(tris), bounds, parts };
+}
+
+function applyModelMaterials(o) {
+  for (const m of o.userData.materials) {
+    const orig = m.userData.orig || (m.userData.orig = {
+      transmission: m.transmission || 0, transparent: m.transparent, opacity: m.opacity, side: m.side, depthWrite: m.depthWrite });
+    if (orig.transmission > 0) {
+      // Transmission (real glass) costs an extra full render pass; fast mode draws it as plain transparency.
+      m.transmission = modelSettings.fast ? 0 : orig.transmission;
+      m.transparent = modelSettings.fast ? true : orig.transparent;
+      m.opacity = modelSettings.fast ? Math.min(orig.opacity, 0.35) : orig.opacity;
+      m.depthWrite = modelSettings.fast ? false : orig.depthWrite;
+    }
+    const cutting = modelSettings.cut > 0;
+    m.clippingPlanes = cutting ? [cutPlane] : null;
+    m.side = cutting ? THREE.DoubleSide : orig.side;   // see the inside walls through the cut
+    m.needsUpdate = true;
+  }
+}
+
+function addModel(gltf, name) {
+  const { group, meshCount, drawCalls, tris, bounds, parts } = mergeByMaterial(gltf.scene);
+  while (objects.length) removeObject(objects[0]);   // a loaded model gets the stage to itself; + Cube adds one back
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  const mats = [...new Set(group.children.map(m => m.material))];
+  // Tilt toward the viewer so open / cut-away models (like the half cell) face you; this is also its rest pose.
+  group.rotation.set(0.75, -0.35, 0);
+  const radius = sphere.radius + sphere.center.length();
+  group.userData = { type: 'model', complex: true, name, radius, baseRadius: radius, angVel: new THREE.Vector3(),
+    grabbedBy: null, spinBy: null, two: null, glow: 0, homing: false, rest: group.quaternion.clone(), home: new THREE.Vector3(),
+    halfH: (bounds.max.y - bounds.min.y) / 2, flight: null, materials: mats };
+  scene.add(group); objects.push(group); select(group);
+  mats.forEach(setupExplode);
+  modelSettings.explode = modelSettings.explodeTarget = 0; setExplode(0);
+  applyModelMaterials(group);
+  undoStack.length = 0;
+  describeModel(gltf, name);
+  const info = gltf.asset?.extras || {};
+  const title = info.title || name;
+  const credit = info.author ? ` Model by ${info.author.replace(/\s*\(.*\)$/, '')}${info.license ? ` (${info.license.split(' ')[0]})` : ''}.` : '';
+  $('#modelCtl').hidden = false;
+  const partNote = parts.length
+    ? ` Grouped parts (explode as one): ${parts.map(p => `${p.name} (${p.meshes} pieces)`).join(', ')}.`
+    : ' No grouped parts found; every piece explodes on its own.';
+  $('#modelInfo').textContent = `${title}: ${meshCount.toLocaleString()} meshes merged into ${drawCalls} draw calls, ${tris.toLocaleString()} triangles.${partNote}${credit}`;
+  hideToast(true);
+  showToast(`Loaded · ${title}`, 1600);
+  return group;
+}
+
+async function loadModelBuffer(buf, name) {
+  showToast(`Loading ${name}…`, 0);
+  await new Promise(r => setTimeout(r, 30));          // let the toast paint before parsing blocks the page
+  try {
+    const gltf = await gltfLoader.parseAsync(buf, '');
+    return addModel(gltf, name);
+  } catch (err) {
+    hideToast(true);
+    showToast(`Couldn't load that model: ${err?.message || err}`, 3500);
+  }
+}
+function loadModelFile(file) {
+  if (!file) return;
+  if (!/\.(glb|gltf)$/i.test(file.name)) { showToast('Choose a .glb or .gltf file', 1800); return; }
+  file.arrayBuffer().then(buf => loadModelBuffer(buf, file.name.replace(/\.(glb|gltf)$/i, '')));
+}
+async function loadModelUrl(url) {
+  try {
+    showToast('Downloading model…', 0);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return loadModelBuffer(await res.arrayBuffer(), decodeURIComponent(url.split('/').pop()).replace(/\.(glb|gltf)$/i, ''));
+  } catch (err) {
+    hideToast(true);
+    // A 404 means the server is fine but the file isn't there; anything else usually means the page was opened from disk.
+    const why = /404/.test(err.message) ? `There's no file at ${url}. Check the name in your models folder` : `Couldn't download ${url} (${err.message}). Open the page through python3 -m http.server`;
+    showToast(why, 5000);
+    $('#gateModelText').textContent = `Couldn't load ${url} (${err.message}). You can still start, then load a model from the panel.`;
+  }
+}
+function updateCut() {
+  // The plane faces the camera and slides through the selected model: 0% = whole, 95% = almost all cut away.
+  const o = objects.find(x => x.userData.complex && x === selected) || objects.find(x => x.userData.complex);
+  if (!o || modelSettings.cut <= 0) return;
+  const r = o.userData.radius * o.scale.x;
+  cutPlane.constant = o.position.z + r * (1 - 2 * modelSettings.cut);   // keeps the part with z <= constant
+}
+
+/* ---------- selection ---------- */
+const selBox = new THREE.BoxHelper(undefined, 0x6ef0c6);
+selBox.material.transparent = true; selBox.material.opacity = 0.7;   // depth-tested, so edges behind the object stay hidden
+selBox.renderOrder = 10; selBox.visible = false;
+scene.add(selBox);
+// Box style: a fainter box on whatever a hand is hovering (when it isn't the selected object).
+const hoverBox = new THREE.BoxHelper(undefined, 0x6ef0c6);
+hoverBox.material.transparent = true; hoverBox.material.opacity = 0.3; hoverBox.renderOrder = 10; hoverBox.visible = false;
+scene.add(hoverBox);
+function select(o) { selected = o; if (o) flash(o); }
+function updateSelection() {
+  const boxes = settings.selStyle === 'box' && !tut.on;
+  const o = objects.includes(selected) ? selected : null;
+  selBox.visible = !!o && boxes;
+  if (selBox.visible) { selBox.setFromObject(o); selBox.material.color.set(o.userData.grabbedBy || o.userData.two ? 0xffb04a : 0x6ef0c6); }
+  const h = [...hoveredNow].find(x => x !== o && objects.includes(x));
+  hoverBox.visible = !!h && boxes;
+  if (hoverBox.visible) { hoverBox.setFromObject(h); hoverBox.material.color.set(h.userData.grabbedBy || h.userData.two ? 0xffb04a : 0x6ef0c6); }
+}
+function cycleSelection(step) {
+  if (!objects.length) return;
+  const i = objects.indexOf(selected);
+  select(objects.at(((i < 0 ? (step > 0 ? -1 : 0) : i) + step + objects.length) % objects.length));
+}
+
+/* ---------- undo ---------- */
+const undoStack = [];
+function snapshot(objs, label) {
+  const items = [].concat(objs).filter(Boolean).map(o => ({ o, p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.x }));
+  undoStack.push({ label, cam: camTarget.clone(), items });
+  if (undoStack.length > 40) undoStack.shift();
+}
+function snapshotOnce(o, label) {   // continuous nudges: at most one undo step per object per second
+  const now = performance.now();
+  if (now - (o.userData.lastSnapT || 0) > 1000) snapshot(o, label);
+  o.userData.lastSnapT = now;
+}
+function undo() {
+  const snap = undoStack.pop();
+  if (!snap) { showToast('Nothing to undo', 900); return; }
+  for (const it of snap.items) {
+    if (!objects.includes(it.o)) continue;
+    for (const t of Object.values(tracks)) {
+      if (t.grab?.obj === it.o) { t.grab = null; it.o.userData.grabbedBy = null; }
+      if (t.spin?.obj === it.o) endSpin(t);
+    }
+    const u = it.o.userData;
+    u.flight = null; u.angVel.set(0, 0, 0); u.two = null;
+    u.goal = { p: it.p, q: it.q, s: it.s }; u.homing = 'goal';
+  }
+  camTarget.copy(snap.cam);
+  showToast(`Undo · ${snap.label}`, 900);
+}
+
+/* ---------- send home, frame, reset rig ---------- */
+const eyeOffset = () => (renderer.xr.isPresenting ? 1.6 : 0);   // local-floor: your eyes are ~1.6 m above the rig
+function homeRig() { camTarget.copy(CAM_HOME); camTarget.y -= eyeOffset(); }
+function sendHome(o) {
+  if (!o) { showToast('Select something first', 900); return; }
+  fly(o, o.userData.home, false, 'Send home');
+  o.userData.angVel.set(0, 0, 0);
+  o.userData.homing = true;            // eases upright and back to 1× during the flight
+  select(o); showToast('Sent home', 800);
+}
+function frameSelected() {
+  const o = objects.includes(selected) ? selected : null;
+  if (!o) { showToast('Select something first', 900); return; }
+  snapshot([], 'Frame');
+  const r = o.userData.radius * o.scale.x;
+  const dist = r / (0.4 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));   // fills ~40% of the view height
+  camTarget.set(o.position.x, o.position.y - eyeOffset(), o.position.z + Math.max(dist, 2.5));
+  showToast('Framed', 700);
+}
+
+/* ---------- palm menu ---------- */
+const menuEl = $('#palmMenu');
+const menu = { open: false, t0: 0, hover: -1, lastHoverT: 0 };
+const MENU_ITEMS = [
+  { id: 'undo', label: () => 'Undo', run: () => undo() },
+  { id: 'home', label: () => 'Send home', run: () => sendHome(objects.includes(selected) ? selected : null) },
+  { id: 'frame', label: () => 'Frame', run: () => frameSelected() },
+  { id: 'reset', label: () => 'Reset view', run: () => resetView('menu') },
+  { id: 'next', label: () => `Next set · ${SETS[nextSetId()].name}`, run: () => applySet(nextSetId()) },
+];
+const nextSetId = () => { const ids = Object.keys(SETS); return ids[(ids.indexOf(settings.set) + 1) % ids.length]; };
+function openMenu(at) {
+  menuEl.replaceChildren(...MENU_ITEMS.map((it, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = it.label(); b.dataset.i = i;
+    b.addEventListener('click', () => { closeMenu(); it.run(); });
+    return b;
+  }));
+  menuEl.hidden = false;
+  const r = menuEl.getBoundingClientRect();
+  const x = at.x < W / 2 ? at.x + 70 : at.x - 70 - r.width;   // beside the hand, toward the screen centre
+  menuEl.style.left = `${clamp(x, 12, W - r.width - 12)}px`;
+  menuEl.style.top = `${clamp(at.y - r.height / 2, 12, H - r.height - 12)}px`;
+  menu.open = true; menu.t0 = menu.lastHoverT = performance.now(); menu.hover = -1;
+}
+function closeMenu() { menu.open = false; menuEl.hidden = true; menu.hover = -1; }
+function menuIndexAt(p) {
+  const btns = [...menuEl.children];
+  return btns.findIndex(b => { const r = b.getBoundingClientRect(); return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom; });
+}
+function chooseMenu(t) {
+  const i = menuIndexAt(t.pinchPt);
+  closeMenu();
+  if (i >= 0) MENU_ITEMS.at(i).run();
+}
+function updateMenu(now) {
+  if (!menu.open) return;
+  let hover = -1;
+  for (const t of Object.values(tracks)) if (t.visible && t.source !== 'ghost') { const i = menuIndexAt(t.pinchPt); if (i >= 0) hover = i; }
+  if (hover !== menu.hover) { menu.hover = hover; menu.lastHoverT = now; [...menuEl.children].forEach((b, i) => b.classList.toggle('hot', i === hover)); }
+  if (now - menu.lastHoverT > 5000) closeMenu();   // 5 s with nothing chosen
+}
+
+/* ---------- controls ---------- */
+const btnCam = $('#btnCam');
+for (const k of ['poke', 'grab', 'grip', 'thumb', 'flick', 'trackball', 'depth', 'twist', 'twoHand',
+  'crane', 'squeeze', 'clap', 'dust', 'burst', 'pointer', 'menu']) {
+  const el = $('#g-' + k);
+  el.addEventListener('change', () => {
+    settings[k] = el.checked;
+    if (k === 'twist') LABELS.forEach(l => tracks[l].grab && baseline(tracks[l]));
+    if (k === 'clap') renderLegend();
+  });
+}
+function setLock(lock) {
+  settings.lock = lock;
+  document.querySelectorAll('[data-lock]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lock === lock)));
+  for (const o of objects) o.userData.angVel.copy(lockVec(o.userData.angVel));
+  LABELS.forEach(l => tracks[l].grab && baseline(tracks[l]));
+}
+document.querySelectorAll('[data-lock]').forEach(b => b.addEventListener('click', () => setLock(b.dataset.lock)));
+
+function setDepthMode(mode, byUser = true) {
+  if (byUser) settings.depthChosen = true;
+  settings.depthMode = mode;
+  document.querySelectorAll('[data-depth]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.depth === mode)));
+  for (const l of ALL) {
+    const t = tracks[l];
+    if (t.grab) baseline(t);
+    if (t.grab?.obj.userData.two) endTwo(t.grab.obj);
+  }
+  if (tut.on && !curSteps()[tut.i].body) $('#tutBody').textContent = pushPullBody();
+}
+document.querySelectorAll('[data-depth]').forEach(b => b.addEventListener('click', () => setDepthMode(b.dataset.depth)));
+// With your own hands on camera, Mirror matches what you see (your hand comes toward you as you reach toward it).
+// The mouse / keyboard default stays Window. A choice you make in the panel or tutorial always wins.
+function cameraDepthDefault() { if (!settings.depthChosen && settings.depthMode !== 'mirror') setDepthMode('mirror', false); }
+
+const coastLabel = v => v < 0.5 ? 'long' : v < 1.6 ? 'medium' : v < 2.8 ? 'short' : 'stops fast';
+const bindRange = (id, key, fmt) => {
+  const el = $('#r-' + id), out = $('#o-' + id);
+  const sync = () => { settings[key] = +el.value; out.textContent = fmt(+el.value); };
+  el.addEventListener('input', sync); sync();
+};
+bindRange('sens', 'sens', v => v.toFixed(1) + '×');
+bindRange('friction', 'friction', coastLabel);
+bindRange('depth', 'depthGain', v => v.toFixed(1));
+bindRange('aimGain', 'aimGain', v => v.toFixed(1) + '×');
+bindRange('craneSpeed', 'craneSpeed', v => v.toFixed(2).replace(/0$/, ''));
+document.querySelectorAll('[data-crane]').forEach(b => b.addEventListener('click', () => {
+  settings.craneMode = b.dataset.crane;
+  document.querySelectorAll('[data-crane]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+}));
+
+/* ---------- gesture sets ---------- */
+function applySet(id, announce = true) {
+  const S = SETS[id];
+  if (!S) return;
+  settings.set = id;
+  // Let go of anything in progress so a gesture from the old set can't keep running.
+  for (const l of ALL) {
+    const t = tracks[l];
+    if (t.assist) endTwo(t.assist);
+    if (t.grab) endGrab(t);
+    if (t.spin) endSpin(t);
+  }
+  for (const P of Object.values(pairs)) endPair(P);
+  if (id !== 'pointer') rayLock = null;
+  for (const k of SET_GESTURES) { settings[k] = S.on.includes(k); $('#g-' + k).checked = settings[k]; }
+  document.querySelectorAll('[data-set]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.set === id)));
+  document.querySelectorAll('.panel [data-for]').forEach(sec => { sec.hidden = !sec.dataset.for.split(' ').includes(id); });
+  $('#setHelp').textContent = S.help;
+  $('#chipSet').textContent = `Set · ${S.name}`;
+  renderLegend();
+  range.group.visible = range.on && id === 'pointer' && !tut.on;
+  $('#chipScore').hidden = !(range.on && id === 'pointer');
+  if (announce) showToast(`Gesture set · ${S.name}`, 1200);
+  if (tut.on) { tutSetTabs(); tutGo(0); setTurn(true); }
+}
+function renderLegend() {
+  const S = SETS[settings.set];
+  $('#legend').replaceChildren(...[...S.legend, ...(settings.clap ? [['CLAP CLAP', 'reset']] : []), ['1 – 4', 'switch set']].map(([k, v]) => {
+    const d = document.createElement('div'), b = document.createElement('b');
+    b.textContent = k; d.append(b, v); return d;
+  }));
+}
+document.querySelectorAll('[data-set]').forEach(b => b.addEventListener('click', () => applySet(b.dataset.set)));
+$('#chipSet').addEventListener('click', () => {
+  const ids = Object.keys(SETS);
+  applySet(ids[(ids.indexOf(settings.set) + 1) % ids.length]);
+});
+$('#chipSet').style.cursor = 'pointer';
+
+document.querySelectorAll('[data-aim]').forEach(b => b.addEventListener('click', () => {
+  settings.aimMode = b.dataset.aim;
+  document.querySelectorAll('[data-aim]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  $('#r-aimGain').disabled = settings.aimMode !== 'finger';
+}));
+$('#v-range').addEventListener('change', e => setRange(e.target.checked));
+$('#btnRange').addEventListener('click', () => { if (!range.on) { $('#v-range').checked = true; setRange(true); } newTargets(); });
+
+let spawnIdx = 0;
+const SPAWN = [[-2.4, .9], [2.4, .9], [-2.4, -1.1], [2.4, -1.1], [0, 1.6], [0, -1.7]];
+document.querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', () => {
+  const [x, y] = SPAWN[spawnIdx++ % SPAWN.length];
+  makeShape(b.dataset.add, new THREE.Vector3(x, y, 0)).userData.angVel.set(.2, .6, 0);
+}));
+$('#btnRemove').addEventListener('click', () => removeObject(selected));
+$('#btnLoadModel').addEventListener('click', () => $('#modelFile').click());
+$('#modelFile').addEventListener('change', e => { loadModelFile(e.target.files[0]); e.target.value = ''; });
+$('#m-fast').addEventListener('change', e => { modelSettings.fast = e.target.checked; objects.filter(o => o.userData.complex).forEach(applyModelMaterials); });
+$('#r-cut').addEventListener('input', e => {
+  const was = modelSettings.cut > 0;
+  modelSettings.cut = +e.target.value; $('#o-cut').textContent = `${Math.round(modelSettings.cut * 100)}%`;
+  if (was !== modelSettings.cut > 0) objects.filter(o => o.userData.complex).forEach(applyModelMaterials);
+});
+$('#r-explode').addEventListener('input', e => setExplode(+e.target.value));
+// Drag a .glb anywhere onto the window to load it.
+let dragDepth = 0;
+addEventListener('dragenter', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { dragDepth++; $('#dropZone').hidden = false; } });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('#dropZone').hidden = true; } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('#dropZone').hidden = true; loadModelFile(e.dataTransfer?.files?.[0]); });
+$('#btnReset').addEventListener('click', resetScene);
+/* ---------- view: video mode, reach, full screen, panel ---------- */
+const pipCanvas = $('#pipCanvas'), pctx = pipCanvas.getContext('2d');
+function applyVideo(mode) {
+  settings.videoMode = mode;
+  document.querySelectorAll('[data-video]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.video === mode)));
+  video.hidden = mode === 'off' || !stream;
+  video.classList.toggle('pip', mode === 'window');
+  pipCanvas.hidden = mode !== 'window' || !stream;
+  if (mode === 'window' && video.videoWidth) {
+    const h = Math.round(256 * video.videoHeight / video.videoWidth);
+    video.style.height = `${h}px`; pipCanvas.height = h;
+  } else video.style.height = '';
+  if (!settings.reachTouched) setReach(mode === 'full' ? 1 : 0.8);   // comfort zone by default once the video no longer needs to line up
+}
+function setReach(v) { settings.reach = v; $('#r-reach').value = v; $('#o-reach').textContent = `${Math.round(v * 100)}%`; }
+document.querySelectorAll('[data-video]').forEach(b => b.addEventListener('click', () => applyVideo(b.dataset.video)));
+document.querySelectorAll('[data-selstyle]').forEach(b => b.addEventListener('click', () => {
+  settings.selStyle = b.dataset.selstyle;
+  document.querySelectorAll('[data-selstyle]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+}));
+$('#r-reach').addEventListener('input', e => { settings.reachTouched = true; setReach(+e.target.value); });
+video.addEventListener('loadedmetadata', () => applyVideo(settings.videoMode));
+function drawPip() {
+  if (pipCanvas.hidden) return;
+  const w = pipCanvas.width, h = pipCanvas.height;
+  pctx.clearRect(0, 0, w, h);
+  pctx.lineWidth = 1.5; pctx.lineCap = 'round';
+  for (const label of LABELS) {
+    const t = tracks[label];
+    if (!t.visible || !t.norm || t.source !== 'webcam') continue;
+    pctx.strokeStyle = t.grab || t.assist ? GRAB : HAND;
+    pctx.beginPath();
+    for (const [a, b] of HAND_LINKS) { pctx.moveTo(t.norm[a].x * w, t.norm[a].y * h); pctx.lineTo(t.norm[b].x * w, t.norm[b].y * h); }
+    pctx.stroke();
+  }
+  if (settings.reach < 1) {   // outline the reach area so you can see the comfortable zone
+    const r = settings.reach;
+    pctx.strokeStyle = 'rgba(255,255,255,.35)'; pctx.setLineDash([3, 4]);
+    pctx.strokeRect((1 - r) / 2 * w, (1 - r) / 2 * h, r * w, r * h); pctx.setLineDash([]);
+  }
+}
+
+let panelWasCollapsed = false;
+function setCollapsed(on) { document.body.classList.toggle('collapsed', on); }
+const toggleCollapsed = () => setCollapsed(!document.body.classList.contains('collapsed'));
+$('#btnHidePanel').addEventListener('click', () => setCollapsed(true));
+const FULL_ICON = 'M2 6V2h4M12 2h4v4M16 12v4h-4M6 16H2v-4', EXIT_ICON = 'M6 2v4H2M16 6h-4V2M12 16v-4h4M2 12h4v4';
+$('#btnFull').addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen();
+  } catch { showToast('Full screen isn\'t available here', 1500); }
+});
+document.addEventListener('fullscreenchange', () => {
+  const on = !!document.fullscreenElement;
+  $('#fullIcon').setAttribute('d', on ? EXIT_ICON : FULL_ICON);
+  $('#btnFull').setAttribute('aria-label', on ? 'Exit full screen' : 'Enter full screen');
+  $('#btnFull').title = on ? 'Exit full screen (Esc)' : 'Full screen (Esc to exit)';
+  if (on) { panelWasCollapsed = document.body.classList.contains('collapsed'); setCollapsed(true); showToast('Full screen · C shows the panel · Esc exits', 1800); }
+  else setCollapsed(panelWasCollapsed);
+});
+$('#v-skeleton').addEventListener('change', e => { settings.skeleton = e.target.checked; });
+btnCam.addEventListener('click', () => (stream ? stopCamera() : startCamera()));
+$('#panelToggle').addEventListener('click', e => {
+  if (document.body.classList.contains('collapsed')) { setCollapsed(false); return; }
+  const open = $('#panel').classList.toggle('open');
+  e.currentTarget.setAttribute('aria-expanded', String(open));
+});
+$('#btnTutorial').addEventListener('click', tutStart);
+$('#tutPrev').addEventListener('click', () => { tutGo(tut.i - 1); setTurn(true); });
+$('#tutNext').addEventListener('click', () => { tutGo(tut.i + 1); setTurn(true); });
+$('#tutTurn').addEventListener('click', () => setTurn(!tut.playing));
+$('#tutMore').addEventListener('click', () => {
+  const open = $('#tutor').classList.toggle('compact') === false;
+  $('#tutMore').setAttribute('aria-expanded', String(open)); $('#tutMore').title = open ? 'Hide the description' : 'Show the description';
+});
+$('#tutDoneAgain').addEventListener('click', () => { tutGo(tut.i); setTurn(false); });
+$('#tutRetryAgain').addEventListener('click', () => { tutGo(tut.i); setTurn(false); });
+$('#tutRetrySkip').addEventListener('click', () => $('#tutDoneNext').click());
+$('#tutDoneNext').addEventListener('click', () => {
+  const list = curSteps(), ids = Object.keys(SETS), nextSet = ids[ids.indexOf(settings.set) + 1];
+  if (tut.i < list.length - 1) { tutGo(tut.i + 1); setTurn(true); }
+  else if (nextSet) applySet(nextSet);        // in the tutorial, switching set restarts at its first step
+  else { tutExit(); showToast('Tutorial complete · you know every gesture', 2400, 'reset'); }
+});
+$('#tutExit').addEventListener('click', tutExit);
+
+addEventListener('keydown', e => {
+  if (e.target.closest('input')) return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+  if (e.key === 'Tab' && !tut.on) { e.preventDefault(); cycleSelection(e.shiftKey ? -1 : 1); return; }
+  if (e.key === ' ' && !tut.on && !e.repeat) { e.preventDefault(); menu.open ? closeMenu() : openMenu(mouse); return; }
+  if (e.key === 'Escape' && menu.open) { closeMenu(); return; }
+  if (tut.on) {
+    if (e.key === 'ArrowRight') { tutGo(tut.i + 1); setTurn(true); return; }
+    if (e.key === 'ArrowLeft') { tutGo(tut.i - 1); setTurn(true); return; }
+    if (e.key === 'Escape') { tutExit(); return; }
+    // Enter = the card's main action. A focused button already handles Enter itself, so leave that alone.
+    if (e.key === 'Enter' && !e.target.closest('button')) {
+      e.preventDefault();
+      if (!$('#tutDone').hidden) $('#tutDoneNext').click();
+      else if (!$('#tutRetry').hidden && !$('#tutRetryAgain').hidden) $('#tutRetryAgain').click();
+      else if (tut.playing) setTurn(false);
+      return;
+    }
+  }
+  const k = e.key.toLowerCase();
+  if (k === 'q' || k === 'e') { heldKeys.add(k); return; }
+  if (SIM_KEYS[k]) { if (!e.repeat && !simKey) { simKey = k; simPrevT = 0; } return; }
+  const setIds = Object.keys(SETS);
+  if (/^[1-4]$/.test(e.key)) { applySet(setIds[+e.key - 1]); return; }
+  if (k === 'f') setLock('free'); else if ('xyz'.includes(k) && k.length === 1) setLock(k);
+  else if (k === 'r') resetView('R key');
+  else if (k === 'u') undo();
+  else if (k === 'c') toggleCollapsed();
+  else if (k === 'b') setExplode(modelSettings.explodeTarget > 0 ? 0 : 1, 'B key');
+  else if (k === 'h') sendHome(objects.includes(selected) ? selected : null);
+  else if (e.key === 'Escape') { select(null); }
+});
+
+// Start screen: two yes / no choices, then Start.
+const gateChoice = { cam: true, tut: false };
+const gateSeg = (attr, key) => document.querySelectorAll(`[${attr}]`).forEach(b => b.addEventListener('click', () => {
+  gateChoice[key] = b.getAttribute(attr) === 'yes';
+  document.querySelectorAll(`[${attr}]`).forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  $('#gateMouseHelp').hidden = gateChoice.cam;
+}));
+gateSeg('data-gcam', 'cam'); gateSeg('data-gtut', 'tut');
+$('#btnGo').addEventListener('click', () => {
+  $('#gate').hidden = true;
+  if (gateChoice.cam) startCamera(); else btnCam.textContent = 'Start camera';
+  if (gateChoice.tut) tutStart();
+});
+// What the start screen says about a loaded model: the credit stored in the file, plus a note for models we know.
+const MODEL_NOTES = {
+  'Animal cell': 'An illustrated animal cell, cut open to show the nucleus, rough and smooth endoplasmic reticulum, Golgi apparatus, mitochondria, ribosomes, centrioles and more. It was made as a cutaway illustration, so some parts are open shells. Grab and turn it, use Cut away to see inside, and explode it (B, or two fists bursting open in the Navigate set) to pull the parts apart.',
+};
+function describeModel(gltf, name) {
+  const x = gltf.asset?.extras || {}, el = $('#gateModelText');
+  const title = x.title || name;
+  const note = Object.entries(MODEL_NOTES).find(([k]) => title.toLowerCase().includes(k.toLowerCase()))?.[1] || '';
+  el.replaceChildren();
+  const b = document.createElement('b'); b.textContent = title; el.append(b, note ? `. ${note}` : '.');
+  if (x.author || x.license || x.source) {
+    const c = document.createElement('span'); c.className = 'fine'; c.style.display = 'block'; c.style.marginTop = '6px';
+    c.append(`Model${x.author ? ` by ${x.author.replace(/\s*\(.*\)$/, '')}` : ''}${x.license ? `, ${x.license.split(' ')[0]}` : ''}`);
+    if (x.source) { const a = document.createElement('a'); a.href = x.source; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'original on Sketchfab'; c.append(' · ', a); }
+    el.append(c);
+  }
+}
+
+/* ---------- boot ---------- */
+try { await document.fonts.load('600 76px "IBM Plex Mono"'); } catch {}
+xrProvider.init();
+xrProvider.supported().then(ok => { $('#btnVR').hidden = !ok; });
+$('#btnVR').addEventListener('click', () => xrProvider.toggle());
+resetScene();
+applySet('grab', false);
+// ?model=models/cell.glb loads a model on start when the page is served from your Web/ folder
+const modelParam = new URLSearchParams(location.search).get('model');
+if (modelParam) { $('#gateModel').hidden = false; loadModelUrl(modelParam); }
+btnCam.textContent = 'Start camera';
+renderer.setAnimationLoop(frame);
+</script>
+</body>
+</html>
