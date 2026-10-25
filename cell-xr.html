@@ -967,10 +967,13 @@ function updateGrab(t, dt) {
     if (settings.depth) z = clamp(g.z0 + depthSign() * (t.scale / g.scale0 - 1) * settings.depthGain, camPos().z + Z_MIN - 8, camPos().z + Z_MAX - 8);
     z = o.position.z + (z - o.position.z) * 0.5;
     o.position.lerp(worldAt(holdPt(t), z).add(g.offset), 0.55);
-    const hq = settings.twist && g.hq0 ? handOrient(t) : null;
+    // Wrist twist only during grip (palm-grab), not pinch. Webcam: roll axis only; VR: full 3D.
+    const hq = settings.twist && g.hq0 && g.mode === 'grip' ? handOrient(t) : null;
     if (hq) {
       const delta = hq.clone().multiply(g.hq0.clone().invert());
-      const rv = lockVec(quatToRotVec(delta)).multiplyScalar(settings.sens);
+      let rv = quatToRotVec(delta).multiplyScalar(settings.sens);
+      if (t.source === 'webcam') rv = AXES.z.clone().multiplyScalar(rv.z); // roll-only on webcam
+      else rv = lockVec(rv);
       o.quaternion.slerp(rotVecToQuat(rv).multiply(g.q0), 0.6);
     }
   }
@@ -982,8 +985,20 @@ function endGrab(t) {
   const g = t.grab, o = g.obj;
   if (t.pinchHist && t.pinchHist.obj === o) { const hp = holdPt(t); t.pinchHist.moved = Math.hypot(hp.x - t.pinchHist.start.x, hp.y - t.pinchHist.start.y); }
   if (o.userData.two) endTwo(o);
-  // A quick wrist flick at release keeps the object spinning.
-  if (g.rotVel.length() > 2) o.userData.angVel.copy(lockVec(g.rotVel)).multiplyScalar(0.6).clampLength(0, 12);
+  // Grip flick → spin; pinch never free-spins. Slow grip release snaps to nearest 45°.
+  if (g.mode === 'grip') {
+    if (g.rotVel.length() > 2) {
+      o.userData.angVel.copy(lockVec(g.rotVel)).multiplyScalar(0.6).clampLength(0, 12);
+    } else {
+      // Snap to nearest 45° on each Euler axis when released slowly.
+      const SNAP = Math.PI / 4;
+      const euler = new THREE.Euler().setFromQuaternion(o.quaternion, 'YXZ');
+      euler.x = Math.round(euler.x / SNAP) * SNAP;
+      euler.y = Math.round(euler.y / SNAP) * SNAP;
+      euler.z = Math.round(euler.z / SNAP) * SNAP;
+      o.quaternion.setFromEuler(euler);
+    }
+  }
   o.userData.grabbedBy = null;
   t.grab = null;
   checkDelivery(o);
