@@ -1,0 +1,9 @@
+{
+  "models": [
+    { "label": "Mitochondria (art)",         "url": "models/mitochondria-art.web.glb" },
+    { "label": "Mitochondria (open)",        "url": "models/mitochondria-open.web.glb" },
+    { "label": "Mitochondria (closed)",      "url": "models/mitochondria-closed.web.glb" },
+    { "label": "Mitochondria (placeholder)", "url": "models/mitochondria-placeholder.web.glb" },
+    { "label": "Animal Cell",                "url": "models/animal-cell.web.glb" }
+  ]
+}

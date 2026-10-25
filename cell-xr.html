@@ -499,6 +499,13 @@
       <p class="fine" id="gateMouseHelp" hidden>Hold N M K L O P to make a hand pose at the mouse pointer (poke, pinch, grab, thumb, open, fist), J for the finger gun. Drag to spin, Shift-drag to move, scroll for depth, B to explode, 1–4 to switch gesture sets. You can turn the camera on later from the panel.</p>
     </div>
     <div class="gate-q">
+      <span>Gesture set?</span>
+      <div class="seg two" role="group" aria-label="Gesture complexity">
+        <button data-gadv="no" aria-pressed="true">Simple — grab, twist, scale</button>
+        <button data-gadv="yes" aria-pressed="false">Advanced — all 4 sets</button>
+      </div>
+    </div>
+    <div class="gate-q">
       <span>Start with the gesture tutorial?</span>
       <div class="seg two" role="group" aria-label="Start with the tutorial">
         <button data-gtut="yes" aria-pressed="false">Yes, show me</button>
@@ -668,6 +675,22 @@ function removeObject(o) {
 }
 
 function resetScene() {
+  // If a model is loaded, restore it to its initial load state instead of replacing with a cube.
+  const model = objects.find(o => o.userData.type === 'model');
+  if (model) {
+    snapshot(objects, 'Reset scene');
+    homeRig();
+    for (const P of Object.values(pairs)) { endPair(P); P.cooldown = performance.now() + 1500; }
+    rayLock = null;
+    modelSettings.explodeTarget = 0; setExplode(0);
+    for (const o of objects) {
+      if (o.userData.grabbedBy || o.userData.spinBy) continue;
+      o.userData.angVel.set(0, 0, 0);
+      o.userData.flight = null;
+      o.userData.homing = 'full';
+    }
+    return;
+  }
   while (objects.length) removeObject(objects[0]);
   camTarget.copy(CAM_HOME);
   const c = makeShape('cube');
@@ -3112,15 +3135,20 @@ addEventListener('keydown', e => {
 });
 
 // Start screen: two yes / no choices, then Start.
-const gateChoice = { cam: true, tut: false };
+const gateChoice = { cam: true, tut: false, adv: false };
 const gateSeg = (attr, key) => document.querySelectorAll(`[${attr}]`).forEach(b => b.addEventListener('click', () => {
   gateChoice[key] = b.getAttribute(attr) === 'yes';
   document.querySelectorAll(`[${attr}]`).forEach(x => x.setAttribute('aria-pressed', String(x === b)));
   $('#gateMouseHelp').hidden = gateChoice.cam;
 }));
-gateSeg('data-gcam', 'cam'); gateSeg('data-gtut', 'tut');
+gateSeg('data-gcam', 'cam'); gateSeg('data-gtut', 'tut'); gateSeg('data-gadv', 'adv');
 $('#btnGo').addEventListener('click', () => {
   $('#gate').hidden = true;
+  if (!gateChoice.adv) {
+    // Simple mode: hide advanced set buttons; active set stays Grab.
+    document.querySelectorAll('[data-set="spin"],[data-set="navigate"],[data-set="pointer"]').forEach(b => b.hidden = true);
+    applySet('grab');
+  }
   if (gateChoice.cam) startCamera(); else btnCam.textContent = 'Start camera';
   if (gateChoice.tut) tutStart();
 });
