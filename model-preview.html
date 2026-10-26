@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mito Preview</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #07080f; overflow: hidden; }
+    canvas { display: block; }
+    #ui {
+      position: fixed; top: 14px; left: 14px;
+      color: #bbb; font: 13px/1.7 monospace;
+      background: rgba(0,0,0,.6); padding: 10px 14px; border-radius: 6px;
+      min-width: 280px;
+    }
+    #ui hr { border: none; border-top: 1px solid #333; margin: 6px 0; }
+    #ui label { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+    #ui input[type=range] { width: 110px; flex-shrink: 0; }
+    #ui span.val { width: 40px; text-align: right; }
+    #ui select { background: #1a1a2a; color: #ccc; border: 1px solid #444;
+                 border-radius: 3px; padding: 2px 4px; flex: 1; font: inherit; }
+    #ui button { background: #1e2840; color: #aac; border: 1px solid #445;
+                 border-radius: 3px; padding: 2px 7px; cursor: pointer; font: inherit;
+                 white-space: nowrap; }
+    #ui button:hover { background: #2a3a5a; }
+    #status { position: fixed; bottom: 14px; left: 14px;
+              color: #666; font: 12px monospace; }
+  </style>
+</head>
+<body>
+<div id="ui">
+  <!-- Model picker -->
+  <label>Model <select id="modelPicker"><option value="">— drop a .glb —</option></select></label>
+  <hr>
+  <!-- Animation -->
+  <label>Amplitude  <input type="range" id="amp" min="0"   max="0.4" step="0.005" value="0.1"> <span class="val" id="ampV">0.100</span></label>
+  <label>Speed      <input type="range" id="spd" min="0"   max="3"   step="0.05"  value="0.6"> <span class="val" id="spdV">0.600</span></label>
+  <label>Noise scale<input type="range" id="scl" min="0.3" max="8"   step="0.1"   value="2.0"> <span class="val" id="sclV">2.000</span></label>
+  <hr>
+  <!-- Slicer -->
+  <label>Slice Y <input type="range" id="slicer" min="-1" max="1" step="0.001" value="1"> <button id="sliceReset">✕</button></label>
+  <hr>
+  <!-- Settings I/O -->
+  <label>
+    <button id="exportBtn">Export settings</button>
+    <button id="importBtn">Import settings</button>
+    <input id="importFile" type="file" accept=".json" hidden>
+  </label>
+</div>
+<div id="status">Drop a .glb here · load via ?model=</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader }     from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+const DEFAULT_MODEL = 'models/mitochondria-art.web.glb';
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+renderer.localClippingEnabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x07080f);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 100);
+camera.position.set(0, 0.3, 2.2);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+// ── Lights ────────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const sun = new THREE.DirectionalLight(0xfff0d0, 2.5);
+sun.position.set(2, 3, 2); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x90b0ff, 0.8);
+fill.position.set(-2, 0, -1); scene.add(fill);
+
+// ── Shared uniforms ───────────────────────────────────────────────────────────
+const U = {
+  uTime: { value: 0 },
+  uAmp:  { value: 0.1 },
+  uSpd:  { value: 0.6 },
+  uScl:  { value: 2.0 },
+};
+
+// ── Clip plane (slicer) ───────────────────────────────────────────────────────
+// normal (0,-1,0), constant = -cutY → clips everything above cutY
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), Infinity);
+
+// ── Jelly shader ──────────────────────────────────────────────────────────────
+const GLSL_NOISE = /* glsl */`
+vec3 _h3(vec3 p){
+  p=fract(p*vec3(443.897,397.297,491.187));
+  p+=dot(p,p.yxz+19.19);
+  return fract((p.xxy+p.yzz)*p.zyx);
+}
+float _n3(vec3 p){
+  vec3 i=floor(p),f=fract(p);
+  f=f*f*(3.0-2.0*f);
+  return mix(
+    mix(mix(_h3(i).x,         _h3(i+vec3(1,0,0)).x,f.x),
+        mix(_h3(i+vec3(0,1,0)).x,_h3(i+vec3(1,1,0)).x,f.x),f.y),
+    mix(mix(_h3(i+vec3(0,0,1)).x,_h3(i+vec3(1,0,1)).x,f.x),
+        mix(_h3(i+vec3(0,1,1)).x,_h3(i+vec3(1,1,1)).x,f.x),f.y),
+  f.z);
+}
+float noise4(vec3 p,float w){
+  return _n3(p+vec3(w*0.31,w*0.17,w*0.23));
+}`;
+
+function applyJellyShader(mat) {
+  mat.clippingPlanes = [clipPlane];
+  mat.clipShadows    = true;
+  mat.side           = THREE.DoubleSide;  // reveal cut interior
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uTime = U.uTime;
+    sh.uniforms.uAmp  = U.uAmp;
+    sh.uniforms.uSpd  = U.uSpd;
+    sh.uniforms.uScl  = U.uScl;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>',
+        `#include <common>\nuniform float uTime,uAmp,uSpd,uScl;\n${GLSL_NOISE}`)
+      .replace('#include <begin_vertex>',
+        `#include <begin_vertex>\nfloat w=uTime*uSpd;\nfloat fac=noise4(position*uScl,w)-0.5;\ntransformed+=normal*fac*uAmp;`);
+  };
+  mat.customProgramCacheKey = () => 'jelly';
+  mat.needsUpdate = true;
+  return mat;
+}
+
+// ── GLTF loader ───────────────────────────────────────────────────────────────
+const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
+
+let modelGroup    = null;
+let currentModelUrl = DEFAULT_MODEL;
+
+function loadModel(url) {
+  if (modelGroup) { scene.remove(modelGroup); modelGroup = null; }
+  document.getElementById('status').textContent = 'Loading…';
+  loader.load(url, gltf => {
+    modelGroup = gltf.scene;
+    modelGroup.traverse(o => {
+      if (!o.isMesh) return;
+      [o.material].flat().forEach(m => applyJellyShader(m));
+    });
+    // Centre + fit camera
+    const box = new THREE.Box3().setFromObject(modelGroup);
+    const ctr = box.getCenter(new THREE.Vector3());
+    const sz  = box.getSize(new THREE.Vector3()).length();
+    modelGroup.position.sub(ctr);
+    camera.position.set(0, sz * 0.15, sz * 1.8);
+    controls.target.set(0, 0, 0);
+    controls.update();
+    scene.add(modelGroup);
+
+    // Update slicer range to model Y extent (pre-centering values adjusted)
+    const halfH = (box.max.y - box.min.y) / 2;
+    const slEl = document.getElementById('slicer');
+    slEl.min   = (-halfH).toFixed(3);
+    slEl.max   = (halfH + 0.001).toFixed(3);
+    slEl.value = slEl.max;
+    clipPlane.constant = Infinity;  // no cut on load
+
+    currentModelUrl = url;
+    // Sync picker (skip blob URLs)
+    if (!url.startsWith('blob:')) {
+      const sel = document.getElementById('modelPicker');
+      if ([...sel.options].some(o => o.value === url)) sel.value = url;
+      else sel.value = '';
+    }
+    document.getElementById('status').textContent = url.split('/').pop();
+  }, undefined, e => {
+    document.getElementById('status').textContent = 'Error: ' + (e.message || e);
+  });
+}
+
+// ── Model picker ──────────────────────────────────────────────────────────────
+const params = new URLSearchParams(location.search);
+const startModel = params.get('model') || DEFAULT_MODEL;
+
+(async () => {
+  const res = await fetch('models/manifest.json').catch(() => null);
+  if (res?.ok) {
+    const { models } = await res.json();
+    const sel = document.getElementById('modelPicker');
+    models.forEach(m => sel.appendChild(new Option(m.label, m.url, false, m.url === startModel)));
+    sel.addEventListener('change', () => { if (sel.value) loadModel(sel.value); });
+  }
+  loadModel(startModel);
+})();
+
+// ── Drag-and-drop ─────────────────────────────────────────────────────────────
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file) loadModel(URL.createObjectURL(file));
+});
+
+// ── Slicer ────────────────────────────────────────────────────────────────────
+document.getElementById('slicer').addEventListener('input', e => {
+  const y = parseFloat(e.target.value);
+  clipPlane.constant = (y >= parseFloat(e.target.max)) ? Infinity : -y;
+});
+document.getElementById('sliceReset').addEventListener('click', () => {
+  const el = document.getElementById('slicer');
+  el.value = el.max;
+  clipPlane.constant = Infinity;
+});
+
+// ── Animation sliders ─────────────────────────────────────────────────────────
+function syncSlider(id, key, valId, val) {
+  document.getElementById(id).value   = val;
+  document.getElementById(valId).textContent = parseFloat(val).toFixed(3);
+  U[key].value = parseFloat(val);
+}
+function bindSlider(id, key, valId) {
+  document.getElementById(id).addEventListener('input', e => {
+    U[key].value = parseFloat(e.target.value);
+    document.getElementById(valId).textContent = parseFloat(e.target.value).toFixed(3);
+  });
+}
+bindSlider('amp', 'uAmp', 'ampV');
+bindSlider('spd', 'uSpd', 'spdV');
+bindSlider('scl', 'uScl', 'sclV');
+
+// ── Settings export ───────────────────────────────────────────────────────────
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const name = currentModelUrl.split('/').pop().replace(/\.web\.glb$|\.glb$/, '');
+  const data = {
+    model:      currentModelUrl,
+    amplitude:  U.uAmp.value,
+    speed:      U.uSpd.value,
+    noiseScale: U.uScl.value,
+  };
+  const a = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })),
+    download: name + '-anim.json',
+  });
+  a.click();
+});
+
+// ── Settings import ───────────────────────────────────────────────────────────
+document.getElementById('importBtn').addEventListener('click', () =>
+  document.getElementById('importFile').click());
+
+document.getElementById('importFile').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const d = JSON.parse(ev.target.result);
+    if (d.amplitude  != null) syncSlider('amp', 'uAmp', 'ampV', d.amplitude);
+    if (d.speed      != null) syncSlider('spd', 'uSpd', 'spdV', d.speed);
+    if (d.noiseScale != null) syncSlider('scl', 'uScl', 'sclV', d.noiseScale);
+  };
+  reader.readAsText(file);
+  e.target.value = '';  // allow re-importing same file
+});
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+(function tick() {
+  requestAnimationFrame(tick);
+  U.uTime.value = clock.getElapsedTime();
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>

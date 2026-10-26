@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Organelle Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ink: #0d1519; --panel: #131e24; --line: rgba(150, 196, 205, .16); --text: #e4ecee; --muted: #8ea2a7;
+    --accent: #6ef0c6; --warm: #ffb04a;
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ink); color: var(--text); font: 14px/1.5 var(--display); overflow: hidden; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .panel { position: fixed; top: 12px; left: 12px; bottom: 12px; width: 320px; overflow-y: auto; z-index: 2;
+    background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 12px; align-content: start; }
+  .panel.collapsed { bottom: auto; }
+  .panel.collapsed > :not(header) { display: none; }
+  header { display: flex; align-items: baseline; gap: 8px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: -.02em; flex: 1; }
+  header button { font: 500 11px var(--mono); color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+  .lead { margin: 0; color: var(--muted); font-size: 12.5px; }
+  details { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  details[open] { padding-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸"; color: var(--muted); font-size: 11px; transition: transform .15s; }
+  details[open] > summary::before { transform: rotate(90deg); }
+  summary .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  summary .stat { margin-left: auto; font: 500 10.5px var(--mono); color: var(--muted); }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; margin-top: 8px; font-size: 12.5px; }
+  .row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .row output { font: 500 11px var(--mono); color: var(--muted); }
+  .rule { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+  .rule b { color: var(--text); font-weight: 600; }
+  label.tog { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-top: 6px; cursor: pointer; }
+  label.tog input { accent-color: var(--accent); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .btn { font: 500 12.5px var(--display); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: rgba(255,255,255,.05); color: var(--text); cursor: pointer; }
+  .btn:hover { background: rgba(255,255,255,.1); }
+  .btn.primary { background: var(--accent); color: #08231a; border-color: transparent; font-weight: 700; }
+  select { font: 12.5px var(--display); background: #0b1317; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  .status { position: fixed; right: 14px; bottom: 12px; z-index: 2; font: 500 11px var(--mono); color: var(--muted);
+    background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+  .labels { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+  .lab { position: absolute; transform: translate(-6px, -50%); display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    font: 600 12px var(--display); color: var(--text); text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: auto; cursor: default; }
+  .lab i { width: 9px; height: 9px; border-radius: 50%; border: 2px solid #fff; background: var(--c); box-shadow: 0 0 0 2px rgba(0,0,0,.35); flex: none; }
+  .lab span { background: rgba(13,21,25,.72); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
+  .lab[hidden] { display: none; }
+  .hint { position: fixed; right: 14px; top: 12px; z-index: 2; font: 500 11px var(--mono); color: var(--muted); text-align: right; }
+  @media (max-width: 700px) { .panel { width: calc(100vw - 24px); bottom: auto; max-height: 55vh; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<aside class="panel" id="panel">
+  <header><h1>Organelle Lab</h1><button id="btnCollapse" title="Hide the panel (C)">Hide · C</button></header>
+  <p class="lead">Closed, sliceable organelles grown from simple space-filling rules. Every membrane is a closed bag with a space inside, so a slice shows solid walls, like a textbook cross-section. Drag to orbit, scroll to zoom.</p>
+
+  <details open>
+    <summary>Slice</summary>
+    <label class="tog"><input type="checkbox" id="sliceOn" checked> Slice the cell</label>
+    <div class="row"><label for="sliceOff">Position</label><output id="o-sliceOff"></output><input type="range" id="sliceOff" min="-1" max="1" step="0.005" value="0.12"></div>
+    <div class="row"><label for="sliceYaw">Turn</label><output id="o-sliceYaw"></output><input type="range" id="sliceYaw" min="-180" max="180" step="1" value="20"></div>
+    <div class="row"><label for="sliceTilt">Tilt</label><output id="o-sliceTilt"></output><input type="range" id="sliceTilt" min="-90" max="90" step="1" value="0"></div>
+    <label class="tog"><input type="checkbox" id="capsOn" checked> Fill cut faces</label>
+    <label class="tog"><input type="checkbox" id="labelsOn" checked> Show labels</label>
+    <div class="row"><label for="memOp">Cell membrane</label><output id="o-memOp"></output><input type="range" id="memOp" min="0" max="1" step="0.01" value="0.2"></div>
+  </details>
+
+  <details>
+    <summary><span class="sw" style="background:#a78bfa"></span>Nucleus<span class="stat" id="st-nucleus"></span></summary>
+    <p class="rule"><b>Rule:</b> two membranes a fixed gap apart (the envelope is one thin closed bag), with pores where the two membranes fuse, spread evenly over the sphere.</p>
+    <label class="tog"><input type="checkbox" data-show="nucleus" checked> Show</label>
+    <div class="row"><label for="p-pores">Nuclear pores</label><output id="o-p-pores"></output><input type="range" id="p-pores" min="0" max="160" step="2" value="70" data-org="er"></div>
+  </details>
+
+  <details open>
+    <summary><span class="sw" style="background:#4f8fd9"></span>Rough ER<span class="stat" id="st-er"></span></summary>
+    <p class="rule"><b>Rule:</b> stack flat closed sheets at a fixed spacing outward from the nuclear envelope, each covering a little less of the sphere; punch holes where noise peaks; join neighbouring sheets with twisted ramps; stud the outer faces with ribosomes. The inner sheet is joined to the envelope, so it's one continuous space, as in a real cell.</p>
+    <label class="tog"><input type="checkbox" data-show="er" checked> Show</label>
+    <label class="tog"><input type="checkbox" data-show="ribosomes" checked> Ribosomes</label>
+    <div class="row"><label for="p-thick">Sheet thickness</label><output id="o-p-thick"></output><input type="range" id="p-thick" min="0.08" max="0.5" step="0.01" value="0.24" data-org="er"></div>
+    <div class="row"><label for="p-sheets">Rough ER rings</label><output id="o-p-sheets"></output><input type="range" id="p-sheets" min="1" max="10" step="1" value="5" data-org="er"></div>
+    <div class="row"><label for="p-gap">Spacing</label><output id="o-p-gap"></output><input type="range" id="p-gap" min="0.35" max="0.9" step="0.01" value="0.55" data-org="er"></div>
+    <div class="row"><label for="p-cover">Coverage</label><output id="o-p-cover"></output><input type="range" id="p-cover" min="40" max="170" step="1" value="115" data-org="er"></div>
+    <div class="row"><label for="p-fen">Holes (fenestrations)</label><output id="o-p-fen"></output><input type="range" id="p-fen" min="0" max="0.45" step="0.01" value="0.18" data-org="er"></div>
+    <div class="row"><label for="p-ramps">Ramps between sheets</label><output id="o-p-ramps"></output><input type="range" id="p-ramps" min="0" max="40" step="1" value="14" data-org="er"></div>
+    <div class="row"><label for="p-ribo">Ribosomes</label><output id="o-p-ribo"></output><input type="range" id="p-ribo" min="0" max="8000" step="100" value="3500" data-org="er"></div>
+  </details>
+
+  <details open>
+    <summary><span class="sw" style="background:#3fb8a8"></span>Smooth ER<span class="stat" id="st-ser"></span></summary>
+    <p class="rule"><b>Rule (coral growth):</b> colonies of trunks start along the rough ER's outer edge, joined by a short web of tubes that blends into a holey base. All tips grow together along the curved surface of the outermost rough-ER shell: past its edge they stay in the shell's own surface (the sheet frays into tubes), and where they pass over the sheet they lift just clear of it, with a gentle wander. Tubes fork within that curved layer into two slightly thinner tubes (~0.9× the radius); growing tips are pushed sideways off nearby tubes, and a relaxation pass nudges crowded tubes apart (staying in the layer) so they bend round each other. With "Grow tubes to the slice", colonies start near the slice on the side you see, grow toward it, and end just past it, so the cut shows open tube ends like a textbook diagram. Tips that bump into another tube can fuse with it. <b>Lace:</b> tube ends join the nearest other tube, and neighbouring tubes link sideways, closing loops with three-way junctions: the "reticulum" (net) of real smooth ER. <b>Vesicles</b> bud off the tubes, some on their way toward the Golgi. Real tubes are 50–100 nm across (radius 0.025–0.05 here, 1 unit ≈ 1 µm); the default is thicker so they're easy to see.</p>
+    <label class="tog"><input type="checkbox" data-show="ser" checked> Show</label>
+    <div class="row"><label for="p-colonies">Colonies</label><output id="o-p-colonies"></output><input type="range" id="p-colonies" min="1" max="10" step="1" value="6" data-org="ser"></div>
+    <div class="row"><label for="p-trunks">Trunks per colony</label><output id="o-p-trunks"></output><input type="range" id="p-trunks" min="1" max="14" step="1" value="8" data-org="ser"></div>
+    <div class="row"><label for="p-tube">Tube width (half)</label><output id="o-p-tube"></output><input type="range" id="p-tube" min="0.03" max="0.3" step="0.005" value="0.16" data-org="ser"></div>
+    <div class="row"><label for="p-flat">Tube shape (height ÷ width)</label><output id="o-p-flat"></output><input type="range" id="p-flat" min="0.3" max="1" step="0.01" value="0.6" data-org="ser"></div>
+    <div class="row"><label for="p-len">Length</label><output id="o-p-len"></output><input type="range" id="p-len" min="1" max="12" step="0.25" value="5.5" data-org="ser"></div>
+    <div class="row"><label for="p-fork">Branching</label><output id="o-p-fork"></output><input type="range" id="p-fork" min="0" max="1" step="0.01" value="0.6" data-org="ser"></div>
+    <div class="row"><label for="p-push">Push apart</label><output id="o-p-push"></output><input type="range" id="p-push" min="0" max="1" step="0.01" value="0.5" data-org="ser"></div>
+    <div class="row"><label for="p-rise">Height above the rough ER</label><output id="o-p-rise"></output><input type="range" id="p-rise" min="0" max="1" step="0.01" value="0.15" data-org="ser"></div>
+    <div class="row"><label for="p-wander">Wander</label><output id="o-p-wander"></output><input type="range" id="p-wander" min="0" max="1" step="0.01" value="0.3" data-org="ser"></div>
+    <div class="row"><label for="p-lace">Lace (network loops)</label><output id="o-p-lace"></output><input type="range" id="p-lace" min="0" max="1" step="0.01" value="0.5" data-org="ser"></div>
+    <div class="row"><label for="p-sves">Vesicles</label><output id="o-p-sves"></output><input type="range" id="p-sves" min="0" max="120" step="2" value="40" data-org="ser"></div>
+    <label class="tog"><input type="checkbox" id="p-fuse" checked data-org="ser"> Fuse tubes that touch (holes and loops)</label>
+    <label class="tog"><input type="checkbox" id="p-toslice" checked> Grow tubes to the slice (rebuild after moving the slice)</label>
+    <div class="row"><label for="growth">Growth</label><output id="o-growth"></output><input type="range" id="growth" min="0" max="1" step="0.001" value="1"></div>
+    <div class="btns"><button class="btn" id="btnGrow">▶ Replay growth</button></div>
+  </details>
+
+  <details>
+    <summary><span class="sw" style="background:#f2a541"></span>Golgi<span class="stat" id="st-golgi"></span></summary>
+    <p class="rule"><b>Rule:</b> stack curved closed discs (cisternae) at a fixed spacing; each disc is a little smaller and swollen at the rim; holes near the rims; vesicles bud off the edges.</p>
+    <label class="tog"><input type="checkbox" data-show="golgi" checked> Show</label>
+    <div class="row"><label for="p-gthick">Disc thickness</label><output id="o-p-gthick"></output><input type="range" id="p-gthick" min="0.04" max="0.3" step="0.005" value="0.12" data-org="golgi"></div>
+    <div class="row"><label for="p-ggap">Gap between discs</label><output id="o-p-ggap"></output><input type="range" id="p-ggap" min="0.02" max="0.4" step="0.005" value="0.22" data-org="golgi"></div>
+    <div class="row"><label for="p-gsize">Disc diameter</label><output id="o-p-gsize"></output><input type="range" id="p-gsize" min="0.8" max="4" step="0.05" value="3.5" data-org="golgi"></div>
+    <div class="row"><label for="p-cis">Discs</label><output id="o-p-cis"></output><input type="range" id="p-cis" min="2" max="9" step="1" value="6" data-org="golgi"></div>
+    <div class="row"><label for="p-curve">Curvature</label><output id="o-p-curve"></output><input type="range" id="p-curve" min="0" max="1" step="0.01" value="0.45" data-org="golgi"></div>
+    <div class="row"><label for="p-ves">Vesicles</label><output id="o-p-ves"></output><input type="range" id="p-ves" min="0" max="120" step="2" value="46" data-org="golgi"></div>
+  </details>
+
+  <details>
+    <summary><span class="sw" style="background:#ef7d64"></span>Mitochondria<span class="stat" id="st-mito"></span></summary>
+    <p class="rule"><b>Rule:</b> an outer capsule membrane; an inner membrane a fixed gap inside it; the inner membrane folds inward into plates (cristae) at a fixed spacing, alternating sides so the folds interleave and fill the space.</p>
+    <label class="tog"><input type="checkbox" data-show="mito" checked> Show</label>
+    <div class="row"><label for="p-mitos">Count</label><output id="o-p-mitos"></output><input type="range" id="p-mitos" min="0" max="10" step="1" value="5" data-org="mito"></div>
+    <div class="row"><label for="p-cristae">Cristae spacing</label><output id="o-p-cristae"></output><input type="range" id="p-cristae" min="0.18" max="0.6" step="0.01" value="0.3" data-org="mito"></div>
+    <div class="row"><label for="p-depth">Crista depth</label><output id="o-p-depth"></output><input type="range" id="p-depth" min="0.3" max="0.95" step="0.01" value="0.7" data-org="mito"></div>
+  </details>
+
+  <details>
+    <summary>Build</summary>
+    <div class="row"><label for="quality">Mesh detail</label>
+      <select id="quality"><option value="0.7">Draft (fast)</option><option value="1" selected>Normal</option><option value="1.35">Fine (slow)</option></select></div>
+    <div class="row"><label for="seed">Random seed</label><output id="o-seed"></output><input type="range" id="seed" min="1" max="999" step="1" value="7"></div>
+    <div class="btns">
+      <button class="btn primary" id="btnBuild">Rebuild all</button>
+      <button class="btn" id="btnExport" title="Download the organelles as a .glb with part_kind / part_name on each, plus Label_* marker nodes">Export .glb</button>
+      <button class="btn" id="btnLabels" title="Download organelle-labels.json and a Blender script that adds the label markers">Export labels</button>
+    </div>
+    <p class="rule">Exported parts carry <b>part_kind</b> and <b>part_name</b> (glTF extras), so Grasp Lab explodes each organelle as one unit. Every mesh is closed.</p>
+  </details>
+</aside>
+<div class="labels" id="labels"></div>
+<div class="hint">drag to orbit · scroll to zoom · C hides the panel</div>
+<div class="status" id="status">building…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const V3 = THREE.Vector3;
+
+/* ---------- renderer, scene, camera ---------- */
+const renderer = new THREE.WebGLRenderer({ canvas: $('#gl'), antialias: true, stencil: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.localClippingEnabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1216);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
+camera.position.set(14, 9, 24);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.minDistance = 4; controls.maxDistance = 80;
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(8, 14, 10); scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xcfe9ff, 0x1a1020, 0.5));
+
+/* ---------- layout constants (scene units ≈ 1 µm) ---------- */
+const R_CELL = 10, R_NUC = 3, T_ENV = 0.26;
+const lastBuild = {};   // positions the labels need (pores, Golgi frame…), filled in by each build
+let T_SHEET = 0.24;   // rough-ER sheet thickness (its lumen); set from the slider at build time
+const ER_AXIS = new V3(-0.75, 0.3, 0.55).normalize();          // the side of the nucleus the rough ER wraps
+const GOLGI_DIR = new V3(0.8, 0.32, -0.25).normalize();        // where the Golgi sits, beside the nucleus
+const COLORS = { nucleus: 0xa78bfa, nucleolus: 0x5b3fa0, er: 0x4f8fd9, ribosomes: 0xe35d6a, ser: 0x3fb8a8,
+  golgi: 0xf2a541, vesicles: 0xffd27a, mito: 0xef7d64, membrane: 0xf6c7c1 };
+
+/* ---------- random numbers and noise ---------- */
+let seed = 7;
+function rng(s) { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function hash3(x, y, z) {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 1274126177) ^ Math.imul(seed, 974711);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function noise3(x, y, z) {   // value noise, 0..1
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const l = (a, b, t) => a + (b - a) * t;
+  return l(l(l(hash3(xi, yi, zi), hash3(xi + 1, yi, zi), u), l(hash3(xi, yi + 1, zi), hash3(xi + 1, yi + 1, zi), u), v),
+           l(l(hash3(xi, yi, zi + 1), hash3(xi + 1, yi, zi + 1), u), l(hash3(xi, yi + 1, zi + 1), hash3(xi + 1, yi + 1, zi + 1), u), v), w);
+}
+const smin = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; };
+const smax = (a, b, k) => -smin(-a, -b, k);
+const randDir = r => { const z = r() * 2 - 1, t = r() * Math.PI * 2, s = Math.sqrt(1 - z * z); return new V3(s * Math.cos(t), s * Math.sin(t), z); };
+function basis(n) { const a = Math.abs(n.x) < 0.9 ? new V3(1, 0, 0) : new V3(0, 1, 0); const u = new V3().crossVectors(n, a).normalize(); return [u, new V3().crossVectors(n, u)]; }
+
+/* ---------- distance fields → closed meshes ----------
+   Each organelle is a signed distance field on a grid: negative inside the solid, positive outside. Shapes
+   combine by (smooth) min / max, so unions, holes and rounded rims come for free, and meshing the zero level
+   always gives a closed, watertight surface. */
+function makeGrid(res, half, center) {
+  const sd = new Float32Array(res * res * res).fill(1e3);
+  return { res, half, center, step: (2 * half) / res, sd };
+}
+const gx = (g, i) => g.center.x + ((i - g.res / 2) / (g.res / 2)) * g.half;
+const gy = (g, j) => g.center.y + ((j - g.res / 2) / (g.res / 2)) * g.half;
+const gz = (g, k) => g.center.z + ((k - g.res / 2) / (g.res / 2)) * g.half;
+const toIdx = (g, v, c) => Math.round(((v - c) / g.half) * (g.res / 2) + g.res / 2);
+function splat(g, min, max, fn) {   // run fn on the cells inside a box: sd = fn(x, y, z, sd)
+  const r = g.res;
+  const i0 = clamp(toIdx(g, min.x, g.center.x), 1, r - 2), i1 = clamp(toIdx(g, max.x, g.center.x), 1, r - 2);
+  const j0 = clamp(toIdx(g, min.y, g.center.y), 1, r - 2), j1 = clamp(toIdx(g, max.y, g.center.y), 1, r - 2);
+  const k0 = clamp(toIdx(g, min.z, g.center.z), 1, r - 2), k1 = clamp(toIdx(g, max.z, g.center.z), 1, r - 2);
+  for (let k = k0; k <= k1; k++) { const z = gz(g, k);
+    for (let j = j0; j <= j1; j++) { const y = gy(g, j); let q = k * r * r + j * r + i0;
+      for (let i = i0; i <= i1; i++, q++) g.sd[q] = fn(gx(g, i), y, z, g.sd[q]); } }
+}
+// Surface nets: one vertex per grid cell the surface passes through (at the average of its edge crossings),
+// and one quad for every grid edge the surface crosses, joining the four cells around that edge. Because every
+// crossing edge gets exactly one quad and neighbouring quads share vertices, the result is watertight.
+function meshGrid(g, cellAttr = null) {
+  const r = g.res, r2 = r * r, sd = g.sd, vid = new Int32Array(r * r2).fill(-1);
+  for (let k = 0; k < r; k++) for (let j = 0; j < r; j++) for (let i = 0; i < r; i++)   // border = outside
+    if (i < 1 || j < 1 || k < 1 || i > r - 2 || j > r - 2 || k > r - 2) sd[k * r2 + j * r + i] = Math.max(sd[k * r2 + j * r + i], 1e-3);
+  const pos = [], nor = [], tri = [], attr = [];
+  const v = new Float32Array(8);
+  const EDGES = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
+  const CO = [[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0,1],[1,0,1],[0,1,1],[1,1,1]];
+  for (let k = 0; k < r - 1; k++) for (let j = 0; j < r - 1; j++) for (let i = 0; i < r - 1; i++) {
+    const q = k * r2 + j * r + i;
+    let mask = 0;
+    for (let c = 0; c < 8; c++) { v[c] = sd[q + CO[c][0] + CO[c][1] * r + CO[c][2] * r2]; if (v[c] < 0) mask |= 1 << c; }
+    if (mask === 0 || mask === 255) continue;
+    let ox = 0, oy = 0, oz = 0, n = 0;
+    for (const [a, b] of EDGES) {
+      if ((v[a] < 0) === (v[b] < 0)) continue;
+      const t = v[a] / (v[a] - v[b]);
+      ox += CO[a][0] + (CO[b][0] - CO[a][0]) * t; oy += CO[a][1] + (CO[b][1] - CO[a][1]) * t; oz += CO[a][2] + (CO[b][2] - CO[a][2]) * t; n++;
+    }
+    vid[q] = pos.length / 3;
+    if (cellAttr) { let cm = 0; for (let c = 1; c < 8; c++) if (v[c] < v[cm]) cm = c; attr.push(cellAttr[q + CO[cm][0] + CO[cm][1] * r + CO[cm][2] * r2]); }   // value of the most-inside corner
+    pos.push(gx(g, i + ox / n), gy(g, j + oy / n), gz(g, k + oz / n));
+    const nx = (v[1] + v[3] + v[5] + v[7]) - (v[0] + v[2] + v[4] + v[6]);   // distance grows outward,
+    const ny = (v[2] + v[3] + v[6] + v[7]) - (v[0] + v[1] + v[4] + v[5]);   // so its gradient is the normal
+    const nz = (v[4] + v[5] + v[6] + v[7]) - (v[0] + v[1] + v[2] + v[3]);
+    const l = Math.hypot(nx, ny, nz) || 1; nor.push(nx / l, ny / l, nz / l);
+  }
+  const quad = (a, b, c, d, flip) => {
+    if (a < 0 || b < 0 || c < 0 || d < 0) return;
+    if (flip) tri.push(a, d, c, a, c, b); else tri.push(a, b, c, a, c, d);
+  };
+  for (let k = 1; k < r - 1; k++) for (let j = 1; j < r - 1; j++) for (let i = 1; i < r - 1; i++) {
+    const q = k * r2 + j * r + i, inside = sd[q] < 0;
+    // edge along +x: cells (i, j-1..j, k-1..k)
+    if (inside !== (sd[q + 1] < 0)) quad(vid[q - r - r2], vid[q - r2], vid[q], vid[q - r], !inside);
+    // edge along +y: cells (i-1..i, j, k-1..k)
+    if (inside !== (sd[q + r] < 0)) quad(vid[q - 1 - r2], vid[q - 1], vid[q], vid[q - r2], !inside);
+    // edge along +z: cells (i-1..i, j-1..j, k)
+    if (inside !== (sd[q + r2] < 0)) quad(vid[q - 1 - r], vid[q - r], vid[q], vid[q - 1], !inside);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  if (cellAttr) geo.setAttribute('born', new THREE.Float32BufferAttribute(attr, 1));
+  geo.setIndex(tri.length / 3 > 65535 * 3 ? new THREE.Uint32BufferAttribute(tri, 1) : new THREE.Uint32BufferAttribute(tri, 1));
+  geo.computeBoundingSphere();
+  return { geo, tris: tri.length / 3, full: false };
+}
+
+/* ---------- slicing with filled cut faces (stencil capping) ----------
+   For each closed object: back faces add 1 to the stencil, front faces subtract 1 (both clipped by the
+   plane). Where the plane is inside the object the count ends non-zero, and a cap is drawn there, then the
+   stencil is cleared for the next object. Overlapping closed pieces still count as inside, so instanced
+   ribosomes and tube segments cap correctly too. */
+const slicePlane = new THREE.Plane(new V3(0, 0, -1), 0);
+const NO_CLIP = new THREE.Plane(new V3(0, 0, -1), 1e4);
+let clipPlane = slicePlane;
+const capGeo = new THREE.PlaneGeometry(60, 60);
+let orderSeq = 1;
+const parts = {};   // name -> { group, items: [...] }
+
+function stencilMat(side, op) {
+  const m = new THREE.MeshBasicMaterial({ side, depthWrite: false, depthTest: false, colorWrite: false, stencilWrite: true,
+    stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op });
+  m.clippingPlanes = [slicePlane];
+  return m;
+}
+function cloneLike(obj, mat) {
+  if (obj.isInstancedMesh) { const m = new THREE.InstancedMesh(obj.geometry, mat, obj.instanceMatrix.count); m.instanceMatrix = obj.instanceMatrix; m.count = obj.count; m.frustumCulled = false; return m; }
+  const m = new THREE.Mesh(obj.geometry, mat); m.matrixAutoUpdate = false; m.matrix.copy(obj.matrix); return m;
+}
+function addPart(name, obj, color, opts = {}) {
+  const P = parts[name] || (parts[name] = { group: new THREE.Group(), items: [] });
+  if (!P.group.parent) scene.add(P.group);
+  obj.material = opts.material || new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.0, side: THREE.FrontSide });
+  obj.material.clippingPlanes = [slicePlane];
+  obj.renderOrder = opts.transparent ? 3000 : 2000;
+  obj.updateMatrix();
+  const order = orderSeq++;
+  const back = cloneLike(obj, stencilMat(THREE.BackSide, THREE.IncrementWrapStencilOp));
+  const front = cloneLike(obj, stencilMat(THREE.FrontSide, THREE.DecrementWrapStencilOp));
+  back.renderOrder = front.renderOrder = order;
+  // Cut faces glow a little on their own so they stay readable whatever way the slice faces the light.
+  const capColor = new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.18);
+  const capMat = new THREE.MeshStandardMaterial({ color: capColor, emissive: capColor, emissiveIntensity: 0.45, roughness: 0.85,
+    stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
+    stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp });
+  const cap = new THREE.Mesh(capGeo, capMat);
+  cap.renderOrder = order + 0.5;
+  cap.onAfterRender = r => r.clearStencil();
+  P.group.add(back, front, cap, obj);
+  P.items.push({ obj, back, front, cap });
+  return obj;
+}
+function clearPart(name) {
+  const P = parts[name]; if (!P) return;
+  for (const it of P.items) { it.obj.geometry.dispose(); it.obj.material.dispose(); it.back.material.dispose(); it.front.material.dispose(); it.cap.material.dispose(); }
+  P.group.clear(); P.items = [];
+}
+function updateSlicing() {
+  const on = $('#sliceOn').checked, caps = on && $('#capsOn').checked;
+  const yaw = THREE.MathUtils.degToRad(+$('#sliceYaw').value), tilt = THREE.MathUtils.degToRad(+$('#sliceTilt').value);
+  const n = new V3(Math.sin(yaw) * Math.cos(tilt), Math.sin(tilt), Math.cos(yaw) * Math.cos(tilt)).negate();
+  slicePlane.normal.copy(n);
+  slicePlane.constant = on ? +$('#sliceOff').value * (R_CELL + 0.5) : 1e4;
+  const p = slicePlane.coplanarPoint(new V3());
+  for (const P of Object.values(parts)) for (const it of P.items) {
+    it.cap.visible = caps; it.back.visible = it.front.visible = caps;
+    it.cap.position.copy(p); it.cap.lookAt(p.x - n.x, p.y - n.y, p.z - n.z);
+    if (it.obj.isInstancedMesh) it.back.count = it.front.count = it.obj.count;
+  }
+}
+
+/* ---------- 1. nucleus + rough ER: one continuous lumen ---------- */
+function erSheetMask(dir, i, n, cover) {
+  // > 0 where sheet i exists. Each sheet outward covers a little less, with a wavy noisy edge.
+  const theta = THREE.MathUtils.degToRad(cover) * (1 - 0.1 * i);
+  const nz = noise3(dir.x * 2.3 + i * 7.1, dir.y * 2.3 - i * 3.3, dir.z * 2.3 + 11) - 0.5;
+  return dir.dot(ER_AXIS) - Math.cos(theta) + 0.35 * nz;
+}
+function buildER(P, Q) {
+  const n = P.sheets, gap = P.gap, R = i => R_NUC + gap * (i + 1);
+  const rMax = R(n - 1) + T_SHEET + 0.4;
+  const g = makeGrid(Math.round(clamp((((2 * (rMax + 0.3)) / (Math.min(T_SHEET, T_ENV) / 2.4)) * Q), 64, 200))   /* a few cells across the thinnest sheet */, rMax + 0.3, new V3());
+  // Fibonacci-spread nuclear pores
+  const pores = []; for (let k = 0; k < P.pores; k++) { const y = 1 - 2 * (k + 0.5) / P.pores, s = Math.sqrt(1 - y * y), t = k * 2.399963; pores.push(new V3(s * Math.cos(t), y, s * Math.sin(t))); }
+  const poreR = 0.17, poreCos = Math.cos((poreR * 2.2) / R_NUC);
+  const dir = new V3(), fenThr = 1 - P.fen;
+  splat(g, new V3(-rMax, -rMax, -rMax), new V3(rMax, rMax, rMax), (x, y, z) => {
+    const r = Math.hypot(x, y, z);
+    if (r < R_NUC - 0.6 || r > rMax + 0.2) return 1e3;
+    dir.set(x / r, y / r, z / r);
+    // envelope: a thin closed shell (the perinuclear space between the two membranes)
+    let d = Math.abs(r - R_NUC) - T_ENV / 2;
+    if (Math.abs(r - R_NUC) < 0.5) for (const pd of pores) {
+      const c = dir.dot(pd); if (c < poreCos) continue;
+      const perp = r * Math.sqrt(Math.max(0, 1 - c * c));
+      d = smax(d, -(perp - poreR), 0.07);       // pore: the membranes fuse round a hole
+    }
+    // sheets
+    for (let i = 0; i < n; i++) {
+      const Ri = R(i); if (Math.abs(r - Ri) > 0.6) continue;
+      const m = erSheetMask(dir, i, n, P.cover);
+      let s = Math.abs(r - Ri) - T_SHEET / 2;
+      s = smax(s, -m * Ri * 0.9, 0.12);          // wavy rounded edge
+      if (P.fen > 0) {
+        const f = noise3(dir.x * Ri * 1.5 + i * 13, dir.y * Ri * 1.5, dir.z * Ri * 1.5 - i * 5);
+        s = smax(s, (f - fenThr) * 2.2, 0.06);    // holes where the noise peaks
+      }
+      d = Math.min(d, s);
+    }
+    return d;
+  });
+  // twisted ramps join each sheet to the next (and the envelope to the first sheet)
+  const rr = rng(seed * 31 + 7), ramps = [];
+  for (let k = 0; k < P.ramps * 6 && ramps.length < P.ramps; k++) {
+    const i = Math.floor(rr() * n) - 1;            // -1 = envelope → sheet 0
+    const d = randDir(rr);
+    if (erSheetMask(d, i + 1, n, P.cover) < 0.08 || (i >= 0 && erSheetMask(d, i, n, P.cover) < 0.08)) continue;
+    ramps.push({ i, d });
+  }
+  for (const { i, d } of ramps) {
+    const rIn = i < 0 ? R_NUC : R(i), rOut = R(i + 1), mid = (rIn + rOut) / 2, hu = (rOut - rIn) / 2 + 0.05;
+    const c = d.clone().multiplyScalar(mid), [u, w] = basis(d), twist = 2.2 / (rOut - rIn), hv = 0.42, hw = T_SHEET / 2;
+    const ext = hu + 0.7;
+    splat(g, c.clone().subScalar(ext), c.clone().addScalar(ext), (x, y, z, cur) => {
+      const qx = x - c.x, qy = y - c.y, qz = z - c.z;
+      const lu = qx * d.x + qy * d.y + qz * d.z, lv = qx * u.x + qy * u.y + qz * u.z, lw = qx * w.x + qy * w.y + qz * w.z;
+      const a = lu * twist, ca = Math.cos(a), sa = Math.sin(a), tv = ca * lv + sa * lw, tw = -sa * lv + ca * lw;
+      const bx = Math.abs(lu) - hu, by = Math.abs(tv) - hv, bz = Math.abs(tw) - hw;
+      const box = Math.min(Math.max(bx, by, bz), 0) + Math.hypot(Math.max(bx, 0), Math.max(by, 0), Math.max(bz, 0));
+      return smin(cur, box, 0.12);
+    });
+  }
+  const m = meshGrid(g);
+  lastBuild.pores = pores; lastBuild.erRadii = Array.from({ length: n }, (_, i) => R(i));
+  return { geo: m.geo, tris: m.tris, full: m.full, ramps: ramps.length };
+}
+function buildRibosomes(P) {
+  const rr = rng(seed * 17 + 3), geo = new THREE.IcosahedronGeometry(0.075, 1), n = P.sheets, mats = [];
+  const R = i => R_NUC + P.gap * (i + 1), fenThr = 1 - P.fen, m4 = new THREE.Matrix4();
+  for (let k = 0; k < P.ribo * 4 && mats.length < P.ribo; k++) {
+    const d = randDir(rr), onEnvelope = rr() < 0.12;
+    let r;
+    if (onEnvelope) { if (d.dot(ER_AXIS) > Math.cos(THREE.MathUtils.degToRad(P.cover))) continue; r = R_NUC + T_ENV / 2 + 0.07; }
+    else {
+      const i = Math.floor(rr() * n), Ri = R(i);
+      if (erSheetMask(d, i, n, P.cover) < 0.04) continue;
+      if (P.fen > 0 && noise3(d.x * Ri * 1.5 + i * 13, d.y * Ri * 1.5, d.z * Ri * 1.5 - i * 5) > fenThr - 0.03) continue;
+      r = Ri + (rr() < 0.5 ? 1 : -1) * (T_SHEET / 2 + 0.065);
+    }
+    mats.push(m4.clone().makeTranslation(d.x * r, d.y * r, d.z * r));
+  }
+  const im = new THREE.InstancedMesh(geo, null, Math.max(1, mats.length));
+  mats.forEach((m, i) => im.setMatrixAt(i, m)); im.count = mats.length; im.frustumCulled = false;
+  return im;
+}
+
+/* ---------- 2. smooth ER: space colonisation ---------- */
+let serGrowth = { mat: null, maxBorn: 1 };
+const growthU = { value: 1 };
+function buildSER(P, erP, Q) {
+  const rr = rng(seed * 53 + 11), n = erP.sheets, Ro = R_NUC + erP.gap * n;   // the outermost sheet's radius (sheet i sits at R_NUC + gap·(i+1))
+  const golgiC = GOLGI_DIR.clone().multiplyScalar(R_NUC + 3.1);
+  const [au, aw] = basis(ER_AXIS);
+  const dirAt = (th, ph) => ER_AXIS.clone().multiplyScalar(Math.cos(th)).addScaledVector(au, Math.cos(ph) * Math.sin(th)).addScaledVector(aw, Math.sin(ph) * Math.sin(th));
+  const rimTheta = ph => { let lo = 0.02, hi = Math.PI - 0.02; for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; if (erSheetMask(dirAt(mid, ph), n - 1, n, erP.cover) > 0) lo = mid; else hi = mid; } return (lo + hi) / 2; };
+  const pts = [], segs = [];   // pts: {p, tube, born, idx, fixed}; segs: [a, b, radius, born]
+  const addPt = (p, tube, born, idx, fixed = false) => { pts.push({ p, tube, born, idx, fixed }); return pts.length - 1; };
+  const step = Math.max(0.1, P.tube * 0.8), lift = P.rise, minR = Math.min(0.05, P.tube * 0.5);   // thinnest a fork tip may get
+  // The layer the tubes grow in: past the outermost sheet's edge they stay in the sheet's own surface (the sheet
+  // frays into tubes); where they pass over the sheet they lift just clear of it.
+  const overSheet = d => clamp((erSheetMask(d, n - 1, n, erP.cover) + 0.06) / 0.12, 0, 1);
+  const layerR = (r, d) => Ro + overSheet(d) * (T_SHEET / 2 + r * P.flat + lift);   // r·flat = the tube's half-height
+  const tips = [];
+  let tubeId = 0;
+  // 1. colonies: trunks along a stretch of the outer sheet's edge, joined by a short web (the holey base)
+  // Toward the slice: the kept side is where the plane's signed distance is positive. Colonies start on the
+  // outermost shell's edge on the kept side, close to the plane, and their tubes grow to it and end just past it.
+  const toSlice = P.toSlice, sN = slicePlane.normal.clone(), sC = slicePlane.constant, sd = q => sN.dot(q) + sC;
+  let colonyPh = [];
+  if (toSlice) {
+    const cand = [];
+    for (let k = 0; k < 144; k++) { const ph = (k / 144) * Math.PI * 2, q = dirAt(rimTheta(ph), ph).multiplyScalar(Ro), d = sd(q); if (d > 0.6 && d < 3.5) cand.push({ ph, d }); }
+    cand.sort((a, b) => a.d - b.d);
+    // up to half the colonies grow to the slice; the rest spread round the rest of the rim
+    const toCut = Math.max(1, Math.ceil(P.colonies / 2));
+    for (const c of cand) if (colonyPh.length < toCut && colonyPh.every(ph => Math.abs(Math.atan2(Math.sin(ph - c.ph), Math.cos(ph - c.ph))) > 0.9)) colonyPh.push(c.ph);
+  }
+  const sliceColonies = colonyPh.length;
+  const sep = ph => Math.min(...colonyPh.map(q => Math.abs(Math.atan2(Math.sin(ph - q), Math.cos(ph - q)))), 9);
+  while (colonyPh.length < P.colonies) {   // fill the rim: each new colony as far as possible from the others
+    let best = 0, bd = -1; for (let k = 0; k < 72; k++) { const ph = (k / 72) * Math.PI * 2 + rr() * 0.05, d0 = sep(ph); if (d0 > bd) { bd = d0; best = ph; } }
+    colonyPh.push(best);
+  }
+  for (let c = 0; c < P.colonies; c++) {
+    const ph0 = colonyPh[c] ?? (c / P.colonies) * Math.PI * 2 + rr() * 0.8, spacing = P.tube * 2.7 / Ro;
+    let prevBase = -1;
+    for (let t = 0; t < P.trunks; t++) {
+      const ph = ph0 + (t - (P.trunks - 1) / 2) * spacing * (0.8 + rr() * 0.5), th = rimTheta(ph);
+      const d = dirAt(th, ph), away = dirAt(th + 0.01, ph).sub(d).normalize();
+      const base = addPt(dirAt(th - 0.25 / Ro, ph).multiplyScalar(Ro), tubeId, 0, 0, true);   // inside the outermost sheet's edge, in its plane
+      if (prevBase >= 0) {   // web between neighbouring trunks: an arched link that blends into a base with holes
+        const A = pts[prevBase].p, B = pts[base].p, mid = A.clone().add(B).multiplyScalar(0.5).addScaledVector(away, 0.35 + rr() * 0.3).setLength(Ro);
+        const m = addPt(mid, tubeId, 1, 1, true);
+        segs.push([prevBase, m, P.tube * 0.8, 1], [m, base, P.tube * 0.8, 1]);
+      }
+      prevBase = base;
+      tips.push({ node: base, dir: away.clone(), r: P.tube * (0.95 + rr() * 0.1), tube: tubeId++, toCut: toSlice && c < sliceColonies, left: (toSlice && c < sliceColonies ? Math.max(P.len, 8) : P.len) * (0.85 + rr() * 0.3), sinceFork: 0, gen: 0, idx: 0, born: 0, layer: rr() * 0.05 });
+    }
+  }
+  // 2. grow all tips together along the curved layer: wander, pushed sideways off nearby tubes, fork, fuse
+  const tmp = new V3(), push = new V3();
+  for (let it = 0; it < 400 && tips.length; it++) {
+    for (let ti = tips.length - 1; ti >= 0; ti--) {
+      const T = tips[ti], p = pts[T.node].p, radial = p.clone().normalize();
+      const tangent = v => v.addScaledVector(radial, -v.dot(radial));      // drop the outward part: parallel to the surface
+      // follow the curved surface: heading kept tangent, steered back to the layer's radius
+      let want = tangent(T.dir.clone()).addScaledVector(radial, (layerR(T.r, radial) + T.layer - p.length()) * 1.5);
+      // toward the slice, along the surface (only for colonies placed by the slice)
+      if (T.toCut) want.addScaledVector(tangent(sN.clone().negate()), 0.9);
+      // gentle wander, along the surface only
+      const w = P.wander * 1.2;
+      want.add(tangent(tmp.set(noise3(p.x * 0.9 + 3, p.y * 0.9, p.z * 0.9) - 0.5, noise3(p.x * 0.9, p.y * 0.9 + 9, p.z * 0.9) - 0.5, noise3(p.x * 0.9, p.y * 0.9, p.z * 0.9 + 17) - 0.5)).multiplyScalar(w * 2));
+      // pushed off other tubes (not this tube's own recent points)
+      push.set(0, 0, 0);
+      let touching = -1, touchD = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        const q = pts[i]; if (q.tube === T.tube && q.idx > T.idx - 5) continue;
+        const dd = p.distanceTo(q.p), reach = T.r * 4 + 0.08;   // scales with the tubes, so thin true-scale tubes can pack closely
+        if (dd < reach && dd > 1e-4) push.addScaledVector(tmp.copy(p).sub(q.p).normalize(), (reach - dd) / reach);
+        // fuse candidates: older growth of another tube that the tip is heading into (not its fork siblings or neighbours at the base)
+        if (q.tube !== T.tube && q.born < T.born - 8 && dd < touchD && tmp.copy(q.p).sub(p).normalize().dot(T.dir) > 0.3) { touchD = dd; touching = i; }
+      }
+      // crowded on every side: coral stops where there's no room left
+      if (push.length() > 4 && T.idx > 6) { tips.splice(ti, 1); continue; }
+      want.addScaledVector(tangent(push), P.push * 1.2).normalize();   // pushed sideways, never up off the surface
+      const ang = Math.acos(clamp(T.dir.dot(want), -1, 1)), turnMax = 0.3;
+      if (ang > turnMax) want = T.dir.clone().lerp(want, turnMax / ang).normalize();
+      const np = p.clone().addScaledVector(want, step);
+      // fuse: a tip that bumps into another tube joins it (coral loops); otherwise stop at limits
+      if (P.fuse && touching >= 0 && touchD < T.r * 2.2 && T.idx > 4) { segs.push([T.node, touching, T.r, T.born + 1]); tips.splice(ti, 1); continue; }
+      if (T.left <= 0 || T.r < minR || np.length() > R_CELL - 0.6 || np.distanceTo(golgiC) < 2.3) { tips.splice(ti, 1); continue; }
+      // reached the slice: one more step just past it, so the cut shows the whole tube end, then stop
+      const pastSlice = T.toCut && sd(np) < -T.r * 1.2;
+      const nn = addPt(np, T.tube, T.born + 1, T.idx + 1);
+      const rNow = T.r * (0.99 + 0.02 * noise3(np.x * 2, np.y * 2, np.z * 2));
+      segs.push([T.node, nn, rNow, T.born + 1]);
+      Object.assign(T, { node: nn, dir: want, left: T.left - step, sinceFork: T.sinceFork + step, idx: T.idx + 1, born: T.born + 1 });
+      if (pastSlice) { tips.splice(ti, 1); continue; }
+      // fork within the curved layer: two slightly thinner children splaying a little apart
+      if (T.sinceFork > Math.max(0.45, P.tube * 4) && T.gen < 5 && rr() < P.fork * 0.2) {
+        const side = new V3().crossVectors(radial, want).normalize(), a = 0.22 + rr() * 0.2, childR = Math.max(T.r * 0.9, minR * 1.2);
+        tips.push({ node: nn, dir: want.clone().multiplyScalar(Math.cos(a)).addScaledVector(side, Math.sin(a)).normalize(), r: childR, tube: tubeId++,
+          left: T.left * (0.7 + rr() * 0.3), sinceFork: 0, gen: T.gen + 1, idx: 0, born: T.born + 1, layer: T.layer, toCut: T.toCut });
+        T.dir = want.clone().multiplyScalar(Math.cos(a)).addScaledVector(side, -Math.sin(a)).normalize();
+        T.r = childR; T.sinceFork = 0; T.gen++;
+      }
+    }
+  }
+  // 3. relax: points of different tubes that crowd each other move apart; each tube stays smooth (springs)
+  const nbrs = pts.map(() => []); for (const [a, b] of segs) { nbrs[a].push(b); nbrs[b].push(a); }
+  const minD = P.tube * 2.6;
+  for (let pass = 0; pass < Math.round(8 * P.push); pass++) {
+    const moves = pts.map(() => new V3());
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i].fixed) continue;
+      for (let j = 0; j < pts.length; j++) {
+        if (i === j || pts[j].tube === pts[i].tube || nbrs[i].includes(j)) continue;
+        const dd = pts[i].p.distanceTo(pts[j].p); if (dd < minD && dd > 1e-4) moves[i].addScaledVector(tmp.copy(pts[i].p).sub(pts[j].p).normalize(), (minD - dd) * 0.35);
+      }
+      if (nbrs[i].length === 2) { const m = pts[nbrs[i][0]].p.clone().add(pts[nbrs[i][1]].p).multiplyScalar(0.5); moves[i].addScaledVector(m.sub(pts[i].p), 0.3); }
+    }
+    pts.forEach((q, i) => { if (!q.fixed) { q.p.add(moves[i]); q.p.setLength(layerR(P.tube, q.p.clone().normalize()) + 0); } });   // back onto the layer
+  }
+  // 3b. lace: close the network into loops with three-way junctions (how real ER tubules join, via fusion).
+  //     Each free tube end joins the nearest point of another tube in reach; then a share of points link sideways
+  //     to a neighbouring tube. The new links stay in the layer.
+  {
+    const deg = pts.map(() => 0); for (const [a, b] of segs) { deg[a]++; deg[b]++; }
+    const reachEnd = P.tube * 9 * P.lace + P.tube * 2, link = (a, b) => { const born = Math.max(pts[a].born, pts[b].born) + 1; segs.push([a, b, P.tube * 0.85, born]); deg[a]++; deg[b]++; };
+    const nearestOther = (i, minD, maxD) => { let best = -1, bd = maxD; for (let j = 0; j < pts.length; j++) { if (pts[j].tube === pts[i].tube) continue; const d = pts[i].p.distanceTo(pts[j].p); if (d > minD && d < bd) { bd = d; best = j; } } return best; };
+    if (P.lace > 0) {
+      for (let i = 0; i < pts.length; i++) if (deg[i] === 1 && !pts[i].fixed) { const j = nearestOther(i, P.tube * 2, reachEnd); if (j >= 0) link(i, j); }
+      for (let i = 0; i < pts.length; i++) if (deg[i] === 2 && !pts[i].fixed && rr() < P.lace * 0.06) { const j = nearestOther(i, P.tube * 3, P.tube * 8); if (j >= 0 && deg[j] <= 2) link(i, j); }
+    }
+  }
+  // 3c. vesicles budding off the tubes; a share of them drifting toward the Golgi
+  const vesicles = [];
+  for (let k = 0; k < P.ves * 3 && vesicles.length < P.ves && pts.length; k++) {
+    const q = pts[Math.floor(rr() * pts.length)]; if (q.fixed) continue;
+    const rad = 0.04 + rr() * 0.09, out = randDir(rr);
+    let c = q.p.clone().addScaledVector(out, P.tube + rad + 0.03);
+    if (rr() < 0.35) c.lerp(golgiC, 0.15 + rr() * 0.45).addScaledVector(randDir(rr), 0.3);   // on the way to the Golgi
+    if (c.length() < Ro - erP.gap * 0.5 || c.length() > R_CELL - 0.4 || c.distanceTo(golgiC) < 1.9) continue;   // not down among the inner sheets
+    vesicles.push({ c, rad });
+  }
+  // 3. blend all segments into one smooth closed surface (distance field + surface nets), remembering when
+  //    each part grew so the replay can reveal it in order
+  const box = new THREE.Box3(); pts.forEach(q => box.expandByPoint(q.p));
+  box.expandByScalar(P.tube * 2 + 0.3);
+  const c = box.getCenter(new V3()), sz = box.getSize(new V3()), half = Math.max(sz.x, sz.y, sz.z) / 2;
+  const res = Math.round(clamp((half * 2) / (P.tube / 2.6) * Q, 60, 200));
+  const maxBorn = Math.max(1, ...pts.map(q => q.born));
+  const vIm = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), null, Math.max(1, vesicles.length));
+  const m4 = new THREE.Matrix4(); vesicles.forEach((v, i) => vIm.setMatrixAt(i, m4.compose(v.c, new THREE.Quaternion(), new V3(v.rad, v.rad, v.rad))));
+  vIm.count = vesicles.length; vIm.frustumCulled = false;
+  // Thin tubes (true scale is 50-100 nm) are finer than a sensible grid can resolve: build them from closed
+  // cylinders and joint spheres instead. Overlapping closed pieces still slice and fill correctly.
+  if (P.tube / ((half * 2) / res) < 2.4) {   // decided by the main tube size; fork tips taper below it
+    const pieces = [], q = new THREE.Quaternion(), zAx = new V3(0, 1, 0), jointR = pts.map(() => 0);
+    const tag = (geo, born) => { geo.deleteAttribute('uv'); geo.setAttribute('born', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(born), 1)); return geo; };
+    for (const [ia, ib, rad, b0] of segs) {
+      const A = pts[ia].p, B = pts[ib].p, len = A.distanceTo(B); if (len < 1e-4) continue;
+      jointR[ia] = Math.max(jointR[ia], rad); jointR[ib] = Math.max(jointR[ib], rad);
+      const cyl = new THREE.CylinderGeometry(rad, rad, len, 10, 1, false);
+      // oblong: the cylinder's cross-section is squashed in the outward direction
+      const mid = A.clone().add(B).multiplyScalar(0.5), ax = B.clone().sub(A).normalize();
+      const out = mid.clone().normalize().addScaledVector(ax, -mid.clone().normalize().dot(ax)).normalize(), bi = new V3().crossVectors(ax, out);
+      cyl.applyMatrix4(m4.makeBasis(out.clone().multiplyScalar(P.flat), ax, bi).setPosition(mid));
+      pieces.push(tag(cyl, b0));
+    }
+    pts.forEach((pt, i) => { if (jointR[i] <= 0) return; const out = pt.p.clone().normalize(), [u, w] = basis(out);
+      pieces.push(tag(new THREE.IcosahedronGeometry(jointR[i], 1).applyMatrix4(m4.makeBasis(out.clone().multiplyScalar(P.flat), u, w).setPosition(pt.p)), pt.born)); });
+    const geo = mergeGeometries(pieces.map(g0 => g0.index ? g0.toNonIndexed() : g0));
+    const perim = (a, b) => Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));   // Ramanujan's ellipse perimeter
+    const wallArea = segs.reduce((A, [ia, ib, rad]) => A + perim(rad, rad * P.flat) * pts[ia].p.distanceTo(pts[ib].p), 0);
+    return { geo, tris: geo.attributes.position.count / 3, tubes: tubeId, segs: segs.length, maxBorn, colonies: P.colonies, vesicles: vIm, thin: true, wallArea };
+  }
+  const g = makeGrid(res, half, c), bornG = new Float32Array(g.sd.length).fill(0);
+  const k = P.tube * 0.55;   // blend radius: organic, coral-like junctions
+  for (const [ia, ib, rad, b0] of segs) {
+    const A = pts[ia].p, B = pts[ib].p, ab = B.clone().sub(A), L2 = Math.max(ab.lengthSq(), 1e-8), e = rad + k + g.step * 2;
+    const mn = new V3(Math.min(A.x, B.x) - e, Math.min(A.y, B.y) - e, Math.min(A.z, B.z) - e), mx = new V3(Math.max(A.x, B.x) + e, Math.max(A.y, B.y) + e, Math.max(A.z, B.z) + e);
+    const r = g.res;
+    splat(g, mn, mx, (x, y, z, cur) => {
+      const t = clamp(((x - A.x) * ab.x + (y - A.y) * ab.y + (z - A.z) * ab.z) / L2, 0, 1);
+      // oblong cross-section: full width along the surface, flattened (×flat) in the outward direction
+      const cx = A.x + ab.x * t, cy = A.y + ab.y * t, cz = A.z + ab.z * t, cl = Math.hypot(cx, cy, cz) || 1;
+      const vx = x - cx, vy = y - cy, vz = z - cz, vr = (vx * cx + vy * cy + vz * cz) / cl;
+      const vt2 = Math.max(0, vx * vx + vy * vy + vz * vz - vr * vr);
+      const d = (Math.sqrt(vt2 + (vr / P.flat) ** 2) - rad) * Math.sqrt(P.flat);
+      if (d < cur) { const q = toIdx(g, z, g.center.z) * r * r + toIdx(g, y, g.center.y) * r + toIdx(g, x, g.center.x); bornG[q] = b0 - 1 + t; }
+      return smin(cur, d, k);
+    });
+  }
+  const m = meshGrid(g, bornG);
+  return { geo: m.geo, tris: m.tris, tubes: tubeId, segs: segs.length, maxBorn, colonies: P.colonies, vesicles: vIm };
+}
+// Growth replay: each vertex carries the time its tube reached it; the shader hides what hasn't grown yet.
+function growthMaterial(color) {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.45 });
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uGrowth = growthU;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float born;\nvarying float vBorn;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBorn = born;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uGrowth;\nvarying float vBorn;')
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vBorn > uGrowth) discard;');
+  };
+  return mat;
+}
+function applyGrowth(t) {
+  growthU.value = t >= 0.999 ? 1e9 : t * serGrowth.maxBorn;
+  $('#o-growth').textContent = `${Math.round(t * 100)}%`;
+  // filled cut faces only make sense for the finished network
+  const it = parts.ser?.items[0]; if (it) { const caps = t >= 0.999 && $('#sliceOn').checked && $('#capsOn').checked; it.cap.visible = it.back.visible = it.front.visible = caps; }
+}
+
+/* ---------- 3. Golgi: stacked curved discs ---------- */
+function buildGolgi(P, Q) {
+  const C = GOLGI_DIR.clone().multiplyScalar(R_NUC + 3.1), axis = GOLGI_DIR.clone().negate();   // cis face toward the nucleus
+  const n = P.cis, t0 = P.thick, spacing = P.thick + P.gap, a0 = P.size / 2, Rc = Math.max(a0 * 1.1, 1.2 + (1 - P.curve) * 9);
+  const half = Math.max(a0 + 0.7, (n * spacing) / 2 + 0.6);
+  const g = makeGrid(Math.round(clamp((2 * half) / (t0 / 2.4), 64, 210) * Q), half, C);   // a few cells across the thinnest disc
+  const discs = [];
+  for (let j = 0; j < n; j++) {
+    const s = (j - (n - 1) / 2) * spacing, a = a0 * (1 - 0.063 * j);
+    const Pj = C.clone().addScaledVector(axis, s), Cj = Pj.clone().addScaledVector(axis, -Rc);
+    discs.push({ Pj, Cj, a, j });
+  }
+  splat(g, C.clone().subScalar(half), C.clone().addScalar(half), (x, y, z) => {
+    const qx = x - C.x, qy = y - C.y, qz = z - C.z, along = qx * axis.x + qy * axis.y + qz * axis.z;
+    const rho = Math.hypot(qx - along * axis.x, qy - along * axis.y, qz - along * axis.z);
+    let d = 1e3;
+    if (rho > a0 + 0.8) return d;
+    for (const { Cj, a, j } of discs) {
+      const dx = x - Cj.x, dy = y - Cj.y, dz = z - Cj.z, dist = Math.hypot(dx, dy, dz);
+      if (dx * axis.x + dy * axis.y + dz * axis.z < 0 || Math.abs(dist - Rc) > spacing + 0.3 || rho > a + 0.6) continue;
+      const swell = t0 * (1 + clamp((rho - a * 0.77) / (a * 0.23), 0, 1));   // rims swell to about twice the thickness
+      let s = Math.abs(dist - Rc) - swell / 2;
+      const wob = (noise3(x * 1.7 + j * 9, y * 1.7, z * 1.7) - 0.5) * 0.35;
+      s = smax(s, rho - a - wob, 0.1);                                       // round disc edge
+      if (rho > a * 0.55) s = smax(s, (noise3(x * 3.2 + j * 4, y * 3.2 - j, z * 3.2) - 0.72) * 2, 0.04);   // holes near the rim
+      d = Math.min(d, s);
+    }
+    return d;
+  });
+  const m = meshGrid(g);
+  // vesicles bud off the rims
+  const rr = rng(seed * 71 + 5), ves = [], m4 = new THREE.Matrix4(), [u, w] = basis(axis);
+  for (let k = 0; k < P.ves; k++) {
+    const D = discs[Math.floor(rr() * n)], ang = rr() * Math.PI * 2, rho = D.a + 0.12 + rr() * 0.45, r = 0.08 + rr() * 0.07;
+    const p = D.Pj.clone().addScaledVector(u, Math.cos(ang) * rho).addScaledVector(w, Math.sin(ang) * rho).addScaledVector(axis, (rr() - 0.5) * 0.3 - (rho * rho) / (2 * Rc));
+    ves.push(m4.clone().compose(p, new THREE.Quaternion(), new V3(r, r, r)));
+  }
+  const im = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), null, Math.max(1, ves.length));
+  ves.forEach((mm, i) => im.setMatrixAt(i, mm)); im.count = ves.length; im.frustumCulled = false;
+  lastBuild.golgi = { C, axis, discs, Rc };
+  return { geo: m.geo, tris: m.tris, ves: im };
+}
+
+/* ---------- 4. mitochondria: capsule membranes with interleaved cristae ---------- */
+function buildMitoGeo(P, Q) {
+  const L = 2.0, R0 = 0.62, gapIM = 0.17, tm = 0.1, half = 1.75, g = makeGrid(Math.round(96 * Q), half, new V3());
+  const capsule = (x, y, z, r) => { const px = clamp(x, -L / 2, L / 2); return Math.hypot(x - px, y, z) - r; };
+  const Ri = R0 - gapIM, plates = [];
+  for (let x = -L / 2 + 0.2, k = 0; x < L / 2 - 0.1; x += P.cristae, k++) plates.push({ x, side: k % 2 ? 1 : -1 });
+  splat(g, new V3(-half, -half, -half), new V3(half, half, half), (x, y, z) => {
+    const outer = Math.abs(capsule(x, y, z, R0)) - tm / 2;
+    const inCap = capsule(x, y, z, Ri);
+    let inner = Math.abs(inCap) - tm / 2;
+    for (const p of plates) {
+      if (Math.abs(x - p.x) > 0.3) continue;
+      let s = Math.abs(x - p.x) - tm / 2;
+      s = smax(s, inCap, 0.04);                                      // stays inside the inner membrane
+      s = smax(s, -(p.side * y + Ri * (1 - 2 * P.depth)), 0.06);     // grows in from one side, stops short of the other
+      inner = smin(inner, s, 0.06);
+    }
+    return Math.min(outer, inner);
+  });
+  return meshGrid(g);
+}
+function mitoPlacements(P, erP) {
+  const rr = rng(seed * 97 + 13), out = [], golgiC = GOLGI_DIR.clone().multiplyScalar(R_NUC + 3.1);
+  const coverCos = Math.cos(THREE.MathUtils.degToRad(erP.cover));
+  for (let k = 0; k < 4000 && out.length < P.mitos; k++) {
+    const d = randDir(rr), r = 6.6 + rr() * 2, p = d.clone().multiplyScalar(r);
+    if (d.dot(ER_AXIS) > coverCos - 0.05 && r < R_NUC + erP.gap * erP.sheets + 1.6) continue;
+    if (p.distanceTo(golgiC) < 3) continue;
+    if (out.some(o => o.p.distanceTo(p) < 2.6)) continue;
+    const q = new THREE.Quaternion().setFromUnitVectors(new V3(1, 0, 0), randDir(rr));
+    out.push({ p, q, s: 0.85 + rr() * 0.35 });
+  }
+  return out;
+}
+
+/* ---------- cell membrane + nucleolus ---------- */
+function shellGeo(rOut, rIn, seg = 96) {
+  const a = new THREE.SphereGeometry(rOut, seg, seg / 2), b = new THREE.SphereGeometry(rIn, seg, seg / 2);
+  const idx = b.index.array; for (let i = 0; i < idx.length; i += 3) { const t = idx[i]; idx[i] = idx[i + 2]; idx[i + 2] = t; }   // inner wall faces inward
+  const nn = b.attributes.normal.array; for (let i = 0; i < nn.length; i++) nn[i] = -nn[i];
+  return mergeGeometries([a, b]);
+}
+
+/* ---------- parameters, building, UI ---------- */
+const P = () => ({
+  er: { thick: +$('#p-thick').value, sheets: +$('#p-sheets').value, gap: +$('#p-gap').value, cover: +$('#p-cover').value, fen: +$('#p-fen').value, ramps: +$('#p-ramps').value, ribo: +$('#p-ribo').value, pores: +$('#p-pores').value },
+  ser: { colonies: +$('#p-colonies').value, trunks: +$('#p-trunks').value, tube: +$('#p-tube').value, len: +$('#p-len').value,
+         fork: +$('#p-fork').value, push: +$('#p-push').value, rise: +$('#p-rise').value, wander: +$('#p-wander').value, fuse: $('#p-fuse').checked, lace: +$('#p-lace').value, flat: +$('#p-flat').value, ves: +$('#p-sves').value,
+         toSlice: $('#p-toslice').checked && $('#sliceOn').checked },
+  golgi: { cis: +$('#p-cis').value, curve: +$('#p-curve').value, ves: +$('#p-ves').value, thick: +$('#p-gthick').value, gap: +$('#p-ggap').value, size: +$('#p-gsize').value },
+  mito: { mitos: +$('#p-mitos').value, cristae: +$('#p-cristae').value, depth: +$('#p-depth').value },
+});
+const status = t => { $('#status').textContent = t; };
+const stat = (k, t) => { const el = $('#st-' + k); if (el) el.textContent = t; };
+const tick = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+
+async function build(which = ['er', 'ser', 'golgi', 'mito', 'static']) {
+  const p = P(), Q = +$('#quality').value, t0 = performance.now();
+  updateSlicing();   // the smooth ER grows toward the current slice
+  T_SHEET = p.er.thick;
+  seed = +$('#seed').value;
+  if (which.includes('static')) {
+    clearPart('membrane'); clearPart('nucleolus');
+    addPart('membrane', new THREE.Mesh(shellGeo(R_CELL, R_CELL - 0.12)), COLORS.membrane, { transparent: true,
+      material: new THREE.MeshPhysicalMaterial({ color: COLORS.membrane, roughness: 0.35, transparent: true, opacity: +$('#memOp').value, depthWrite: false }) });
+    const nuc = new THREE.Mesh(new THREE.IcosahedronGeometry(1.05, 4)); nuc.position.copy(ER_AXIS).multiplyScalar(-0.7);
+    addPart('nucleolus', nuc, COLORS.nucleolus);
+    parts.membrane.items[0].obj.userData.partName = 'Cell membrane';
+  }
+  const timings = {}; let tp = performance.now(); const lap = k => { const n = performance.now(); timings[k] = Math.round(n - tp); tp = n; };
+  if (which.includes('er')) {
+    status('growing the nuclear envelope and rough ER…'); await tick(); tp = performance.now();
+    clearPart('er'); clearPart('ribosomes');
+    const r = buildER(p.er, Q);
+    const mesh = addPart('er', new THREE.Mesh(r.geo), COLORS.er);
+    mesh.userData.partName = 'Nuclear envelope + rough ER';
+    const rib = addPart('ribosomes', buildRibosomes(p.er), COLORS.ribosomes);
+    rib.userData.partName = 'Ribosomes';
+    stat('er', `${(r.tris / 1000).toFixed(0)}k tris · ${r.ramps} ramps · ${rib.count} ribosomes${r.full ? ' · detail capped' : ''}`);
+    stat('nucleus', `${p.er.pores} pores`); lap('er');
+  }
+  if (which.includes('ser')) {
+    status('growing the smooth ER…'); await tick(); tp = performance.now();
+    clearPart('ser');
+    const r = buildSER(p.ser, p.er, Q);
+    serGrowth.maxBorn = r.maxBorn;
+    addPart('ser', new THREE.Mesh(r.geo), COLORS.ser, { material: growthMaterial(COLORS.ser) }).userData.partName = 'Smooth ER';
+    addPart('ser', r.vesicles, 0x8fe3d6).userData.partName = 'Smooth ER vesicles';
+    // membrane area: smooth ER vs rough ER (rough ER mesh minus the nuclear envelope's two faces)
+    const area = geo => { const P_ = geo.attributes.position.array, I = geo.index ? geo.index.array : null, n = I ? I.length : P_.length / 3, a = new V3(), b = new V3(), c = new V3(); let A = 0;
+      for (let t = 0; t < n; t += 3) { const i0 = I ? I[t] : t, i1 = I ? I[t + 1] : t + 1, i2 = I ? I[t + 2] : t + 2; a.fromArray(P_, i0 * 3); b.fromArray(P_, i1 * 3); c.fromArray(P_, i2 * 3); A += b.sub(a).cross(c.sub(a)).length() / 2; } return A; };
+    const erMesh = parts.er?.items[0]?.obj;
+    if (erMesh) { const envelope = 4 * Math.PI * ((R_NUC + T_ENV / 2) ** 2 + (R_NUC - T_ENV / 2) ** 2), rough = Math.max(1, area(erMesh.geometry) - envelope), smooth = r.thin ? r.wallArea : area(r.geo);
+      r.areaPct = Math.round((smooth / rough) * 100); }
+    stat('ser', `${r.colonies} colonies · ${r.tubes} branches · ${r.vesicles.count} vesicles${r.areaPct != null ? ` · membrane ${r.areaPct}% of rough ER` : ''}${r.thin ? ' · thin-tube mode' : ''}`);
+    applyGrowth(+$('#growth').value); lap('ser');
+  }
+  if (which.includes('golgi')) {
+    status('stacking the Golgi…'); await tick(); tp = performance.now();
+    clearPart('golgi');
+    const r = buildGolgi(p.golgi, Q);
+    addPart('golgi', new THREE.Mesh(r.geo), COLORS.golgi).userData.partName = 'Golgi apparatus';
+    addPart('golgi', r.ves, COLORS.vesicles).userData.partName = 'Golgi vesicles';
+    stat('golgi', `${p.golgi.cis} discs · ${(r.tris / 1000).toFixed(0)}k tris`); lap('golgi');
+  }
+  if (which.includes('mito')) {
+    status('folding mitochondria…'); await tick(); tp = performance.now();
+    clearPart('mito');
+    if (p.mito.mitos > 0) {
+      const m = buildMitoGeo(p.mito, Q);
+      mitoPlacements(p.mito, p.er).forEach((pl, i) => {
+        const mesh = new THREE.Mesh(i === 0 ? m.geo : m.geo.clone());
+        mesh.position.copy(pl.p); mesh.quaternion.copy(pl.q); mesh.scale.setScalar(pl.s);
+        addPart('mito', mesh, COLORS.mito).userData.partName = `Mitochondrion ${String(i + 1).padStart(2, '0')}`;
+      });
+      stat('mito', `${parts.mito.items.length} × ${(m.tris / 1000).toFixed(0)}k tris`);
+    } else stat('mito', 'none');
+    lap('mito');
+  }
+  window.__timings = timings;
+  for (const k of Object.keys(parts)) applyShow(k);
+  updateSlicing();
+  computeLabels();
+  status(`built in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+}
+
+// visibility (nucleus = envelope part of the ER mesh, so it shares that toggle)
+const SHOW_MAP = { nucleus: ['nucleolus'], er: ['er'], ribosomes: ['ribosomes'], ser: ['ser'], golgi: ['golgi'], mito: ['mito'] };
+function applyShow(name) {
+  for (const [key, list] of Object.entries(SHOW_MAP)) if (list.includes(name)) {
+    const el = document.querySelector(`[data-show="${key}"]`); if (parts[name]) parts[name].group.visible = el ? el.checked : true;
+  }
+}
+document.querySelectorAll('[data-show]').forEach(el => el.addEventListener('change', () => (SHOW_MAP[el.dataset.show] || []).forEach(applyShow)));
+
+// sliders: live readouts; organelle sliders rebuild just that organelle (debounced)
+const fmt = el => el.id === 'p-cover' || el.id === 'sliceYaw' || el.id === 'sliceTilt' ? `${el.value}°`
+  : el.id === 'sliceOff' ? `${Math.round(el.value * 100)}%` : ['memOp', 'p-fen', 'p-curve', 'p-depth', 'p-fork', 'p-wander', 'p-push', 'p-lace', 'p-flat'].includes(el.id) ? `${Math.round(el.value * 100)}%`
+  : el.id === 'p-tube' ? `${Math.round(el.value * 2000)} nm wide`
+  : ['p-thick', 'p-gthick', 'p-ggap'].includes(el.id) ? `${Math.round(el.value * 1000)} nm` : el.id === 'p-gsize' ? `${(+el.value).toFixed(2)} µm` : el.value;
+let pending = new Set(), timer = 0, labelTimer = 0;
+document.querySelectorAll('input[type=range]').forEach(el => {
+  const out = $('#o-' + el.id); if (out) out.textContent = fmt(el);
+  el.addEventListener('input', () => {
+    if (out) out.textContent = fmt(el);
+    if (el.id.startsWith('slice')) { updateSlicing(); clearTimeout(labelTimer); labelTimer = setTimeout(computeLabels, 200); }
+    else if (el.id === 'memOp') { const it = parts.membrane?.items[0]; if (it) it.obj.material.opacity = +el.value; }
+    else if (el.id === 'growth') applyGrowth(+el.value);
+    else if (el.dataset.org) {
+      pending.add(el.dataset.org);
+      if (el.dataset.org === 'er') { pending.add('ser'); pending.add('mito'); }   // the smooth ER and mitochondria fit around the rough ER
+      clearTimeout(timer); timer = setTimeout(() => { const w = [...pending]; pending = new Set(); build(w); }, 350);
+    }
+  });
+});
+$('#sliceOn').addEventListener('change', () => { updateSlicing(); computeLabels(); });
+$('#capsOn').addEventListener('change', updateSlicing);
+$('#btnBuild').addEventListener('click', () => build());
+$('#seed').addEventListener('change', () => build());
+$('#quality').addEventListener('change', () => build());
+$('#p-fuse').addEventListener('change', () => build(['ser']));
+$('#p-toslice').addEventListener('change', () => build(['ser']));
+$('#btnGrow').addEventListener('click', () => {
+  const t0 = performance.now(), el = $('#growth');
+  const step = () => { const t = Math.min(1, (performance.now() - t0) / 3500); el.value = t; applyGrowth(t); if (t < 1) requestAnimationFrame(step); };
+  step();
+});
+function toggleCollapse() { const c = $('#panel').classList.toggle('collapsed'); $('#btnCollapse').textContent = c ? 'Show · C' : 'Hide · C'; }
+$('#btnCollapse').addEventListener('click', toggleCollapse);
+addEventListener('keydown', e => { if (e.key.toLowerCase() === 'c' && !e.target.closest('input,select')) toggleCollapse(); });
+
+// export: bake instances, tag each organelle as one part, download .glb
+const PART_FOR = { er: 'Nuclear envelope + rough ER', ribosomes: 'Ribosomes', ser: 'Smooth ER', golgi: 'Golgi apparatus', mito: 'Mitochondria', nucleolus: 'Nucleolus', membrane: 'Cell membrane' };
+$('#btnExport').addEventListener('click', async () => {
+  status('exporting…'); await tick();
+  const root = new THREE.Group(); root.name = 'OrganelleLab';
+  for (const [name, Pp] of Object.entries(parts)) {
+    if (!Pp.group.visible || !Pp.items.length) continue;
+    const grp = new THREE.Group(); grp.name = name; grp.userData = { part_kind: name === 'mito' ? 'group' : 'organelle', part_name: PART_FOR[name] || name };
+    for (const [i, it] of Pp.items.entries()) {
+      const o = it.obj; let geo;
+      if (o.isInstancedMesh) {
+        const list = [], m4 = new THREE.Matrix4(), base = o.geometry.clone().deleteAttribute('uv') || o.geometry;
+        for (let k = 0; k < o.count; k++) { o.getMatrixAt(k, m4); list.push(base.clone().applyMatrix4(m4)); }
+        if (!list.length) continue;
+        geo = mergeGeometries(list.map(gg => { gg.deleteAttribute('uv'); return gg; }));
+      } else { geo = o.geometry.clone(); if (geo.attributes.born) geo.deleteAttribute('born'); }
+      const mat = new THREE.MeshStandardMaterial({ color: o.material.color, roughness: 0.55, name: `${name}-mat` });
+      const mesh = new THREE.Mesh(geo, mat); mesh.name = `${name}_${i}`;
+      if (!o.isInstancedMesh) { mesh.position.copy(o.position); mesh.quaternion.copy(o.quaternion); mesh.scale.copy(o.scale); }
+      if (name === 'mito') {   // each mitochondrion is its own organelle inside the group
+        const one = new THREE.Group(); one.name = `Mitochondrion_${String(i + 1).padStart(2, '0')}`;
+        one.userData = { part_kind: 'organelle', part_name: 'Mitochondrion' }; one.add(mesh); grp.add(one);
+      } else grp.add(mesh);
+    }
+    root.add(grp);
+  }
+  if (!labelData.length) computeLabels();
+  const labels = new THREE.Group(); labels.name = 'Labels'; labels.userData = { part_kind: 'labels' };
+  for (const l of labelData) { const o = new THREE.Object3D(); o.name = 'Label_' + slug(l.name); o.position.copy(l.position);
+    o.userData = { label: true, label_name: l.name, description: l.content, part: l.part }; labels.add(o); }
+  root.add(labels);
+  root.userData = { generator: 'Organelle Lab (Grasp Lab)', seed };
+  const glb = await new GLTFExporter().parseAsync(root, { binary: true });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([glb], { type: 'model/gltf-binary' }));
+  a.download = `organelles-seed${seed}.glb`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  status('exported');
+});
+
+/* ---------- labels: one marker per organelle, on the side you can see ----------
+   Each anchor is a real point on the generated geometry, picked on the kept side of the slice and facing the
+   camera. They show on screen, go into the .glb as Label_* nodes (extras: label_name, description, part), and
+   export as organelle-labels.json + a Blender script, like the Sketchfab Label Mapper. */
+const LABEL_TEXT = {
+  membrane:   ['Cell membrane', 'Lipid bilayer that encloses the cell and controls what enters and leaves.'],
+  envelope:   ['Nuclear envelope', 'Double membrane around the nucleus; the space between its membranes is continuous with the ER lumen.'],
+  pore:       ['Nuclear pore', 'Channel where the envelope\'s two membranes fuse; controls traffic between the nucleus and the cytoplasm.'],
+  nucleolus:  ['Nucleolus', 'Dense region of the nucleus where ribosome subunits are assembled.'],
+  rer:        ['Rough ER', 'Stacked membrane sheets joined by spiral ramps and studded with ribosomes; makes and folds proteins for secretion and membranes.'],
+  ribosome:   ['Ribosomes', 'Protein-making machines (about 25–30 nm); on the rough ER they feed new proteins into its lumen.'],
+  ser:        ['Smooth ER', 'Lacelike network of tubules continuous with the rough ER; makes lipids and steroids, detoxifies, stores calcium.'],
+  servesicle: ['ER vesicles', 'Small membrane bubbles that bud from the ER and carry lipids and proteins, many to the Golgi.'],
+  golgi:      ['Golgi apparatus', 'Stack of flattened discs (cisternae) that modifies, sorts and packages proteins and lipids.'],
+  cis:        ['Golgi cis face', 'Receiving side of the Golgi, facing the ER.'],
+  trans:      ['Golgi trans face', 'Shipping side, where vesicles leave for the cell membrane, lysosomes and secretion.'],
+  mito:       ['Mitochondrion', 'Outer membrane, and an inner membrane folded into cristae, where most of the cell\'s ATP is made.'],
+};
+const LABEL_PART = { membrane: 'membrane', envelope: 'er', pore: 'er', nucleolus: 'nucleolus', rer: 'er', ribosome: 'ribosomes', ser: 'ser', servesicle: 'ser', golgi: 'golgi', cis: 'golgi', trans: 'golgi', mito: 'mito' };
+let labelData = [];
+function computeLabels() {
+  const view = camera.position.clone().sub(controls.target).normalize(), on = $('#sliceOn').checked;
+  const kept = p => !on || slicePlane.distanceToPoint(p) > 0.05;
+  const score = p => p.clone().normalize().dot(view) + (on ? -Math.abs(slicePlane.distanceToPoint(p)) * 0.05 : 0);
+  const bestOf = list => { let b = null, bs = -Infinity; for (const p of list) if (kept(p)) { const sc = score(p); if (sc > bs) { bs = sc; b = p; } } return b; };
+  const fromGeo = (geo, filter = () => true, mat = null) => { const a = geo.attributes.position.array, out = [], st = Math.max(3, Math.floor(a.length / 3 / 4000)) * 3, v = new V3();
+    for (let i = 0; i < a.length; i += st) { v.fromArray(a, i); if (mat) v.applyMatrix4(mat); if (filter(v)) out.push(v.clone()); } return out; };
+  const fromInst = im => { const out = [], m4 = new THREE.Matrix4(); for (let i = 0; i < im.count; i++) { im.getMatrixAt(i, m4); out.push(new V3().setFromMatrixPosition(m4)); } return out; };
+  const L = [], add = (key, p) => { if (p) L.push({ key, name: LABEL_TEXT[key][0], content: LABEL_TEXT[key][1], part: LABEL_PART[key], position: p }); };
+  const er = parts.er?.items[0]?.obj;
+  if (er) {
+    add('envelope', bestOf(fromGeo(er.geometry, v => Math.abs(v.length() - R_NUC) < 0.2)));
+    const Ro = lastBuild.erRadii?.at(-1) ?? R_NUC + 2;
+    add('rer', bestOf(fromGeo(er.geometry, v => v.length() > R_NUC + 0.5 && v.length() < Ro + 0.3)));
+    if (lastBuild.pores?.length) add('pore', bestOf(lastBuild.pores.map(d => d.clone().multiplyScalar(R_NUC + T_ENV / 2))));
+  }
+  const nuc = parts.nucleolus?.items[0]?.obj; if (nuc) add('nucleolus', bestOf(fromGeo(nuc.geometry, () => true, nuc.matrix)));
+  const rib = parts.ribosomes?.items[0]?.obj; if (rib) add('ribosome', bestOf(fromInst(rib)));
+  const ser = parts.ser?.items[0]?.obj; if (ser) add('ser', bestOf(fromGeo(ser.geometry)));
+  const sv = parts.ser?.items[1]?.obj; if (sv) add('servesicle', bestOf(fromInst(sv)));
+  const gol = parts.golgi?.items[0]?.obj, G = lastBuild.golgi;
+  if (gol) { add('golgi', bestOf(fromGeo(gol.geometry)));
+    if (G) { const ends = [G.discs[0], G.discs.at(-1)]; add('cis', bestOf(fromGeo(gol.geometry, v => v.distanceTo(ends[0].Pj) < ends[0].a * 0.6)));
+      add('trans', bestOf(fromGeo(gol.geometry, v => v.distanceTo(ends[1].Pj) < ends[1].a * 0.6))); } }
+  const mitos = parts.mito?.items.map(it => it.obj) || [];
+  if (mitos.length) { const c = bestOf(mitos.map(m => m.position.clone())); const m = mitos.find(o => o.position.equals(c || new V3(1e9)));
+    if (m) add('mito', bestOf(fromGeo(m.geometry, () => true, m.matrix))); }
+  const mem = parts.membrane?.items[0]?.obj; if (mem) add('membrane', bestOf(fromGeo(mem.geometry, v => v.length() > R_CELL - 0.05)));
+  labelData = L.map((l, i) => ({ index: i, ...l }));
+  const box = $('#labels'); box.replaceChildren(...labelData.map(l => {
+    const el = document.createElement('div'); el.className = 'lab'; el.title = l.content;
+    el.style.setProperty('--c', '#' + new THREE.Color(COLORS[l.part === 'er' ? 'er' : l.part] ?? 0xffffff).getHexString());
+    el.innerHTML = '<i></i><span></span>'; el.querySelector('span').textContent = l.name; l.el = el; return el; }));
+}
+const _lv = new V3();
+function updateLabels() {
+  const on = $('#labelsOn').checked, w = innerWidth, h = innerHeight, sliceOn = $('#sliceOn').checked;
+  for (const l of labelData) {
+    const vis = on && parts[l.part]?.group.visible !== false && (!sliceOn || slicePlane.distanceToPoint(l.position) > -0.02);
+    _lv.copy(l.position).project(camera);
+    l.el.hidden = !vis || _lv.z > 1;
+    if (!l.el.hidden) { l.el.style.left = `${(_lv.x + 1) / 2 * w}px`; l.el.style.top = `${(1 - _lv.y) / 2 * h}px`; }
+  }
+}
+const slug = t => t.replace(/[^\w]+/g, '_').replace(/^_|_$/g, '');
+$('#btnLabels').addEventListener('click', () => {
+  if (!labelData.length) computeLabels();
+  const data = { source: 'Organelle Lab (Grasp Lab)', seed, units: '1 unit = 1 µm', coordinates: 'glTF / three.js: right-handed, +Y up (same as the exported .glb)',
+    labels: labelData.map(l => ({ index: l.index, name: l.name, content: l.content, part: l.part, node: 'Label_' + slug(l.name), position: l.position.toArray().map(v => +v.toFixed(4)) })) };
+  const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+  dl('organelle-labels.json', JSON.stringify(data, null, 2), 'application/json');
+  const py = `# Adds the Organelle Lab label markers to the open Blender scene: one Empty per label (named Label_*),
+# with the label text as custom properties, in a "Labels" collection. Safe to re-run (updates existing markers).
+# Positions are converted from glTF (+Y up) to Blender (+Z up), matching File > Import > glTF of the exported .glb.
+import bpy
+LABELS = ${JSON.stringify(data.labels, null, 2)}
+col = bpy.data.collections.get("Labels") or bpy.data.collections.new("Labels")
+if col.name not in bpy.context.scene.collection.children:
+    bpy.context.scene.collection.children.link(col)
+for L in LABELS:
+    x, y, z = L["position"]
+    ob = bpy.data.objects.get(L["node"])
+    if ob is None:
+        ob = bpy.data.objects.new(L["node"], None)
+        ob.empty_display_type = "SPHERE"
+        ob.empty_display_size = 0.15
+        col.objects.link(ob)
+    ob.location = (x, -z, y)
+    ob["label_name"] = L["name"]
+    ob["description"] = L["content"]
+    ob["part"] = L["part"]
+print(f"{len(LABELS)} label markers in collection 'Labels'")
+`;
+  dl('add_organelle_labels.py', py, 'text/x-python');
+});
+$('#labelsOn').addEventListener('change', updateLabels);
+
+/* ---------- render loop ---------- */
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); updateLabels(); });
+window.__lab = { parts, build, P, slicePlane, camera, controls, updateSlicing };
+build();
+</script>
+</body>
+</html>
