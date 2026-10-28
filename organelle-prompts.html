@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Organelle Prompt Guide — CellXR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ink: #0d1519; --panel: #131e24; --line: rgba(150,196,205,.16); --text: #e4ecee; --muted: #8ea2a7;
+    --accent: #6ef0c6; --warm: #ffb04a; --red: #f07070;
+    --display: "Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+    --mono: "IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ink); color: var(--text); font: 15px/1.65 var(--display); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* nav */
+  nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--ink) 90%, transparent);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line); padding: 10px 24px; display: flex; align-items: center; gap: 16px; }
+  nav a.home { font: 600 14px var(--mono); color: var(--muted); }
+  nav h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; flex: 1; }
+
+  /* layout */
+  .page { max-width: 820px; margin: 0 auto; padding: 48px 24px 80px; }
+  .byline { font: 500 12px var(--mono); color: var(--muted); margin-bottom: 32px; }
+
+  /* typography */
+  h2 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; margin: 48px 0 10px; color: var(--text); border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  h3 { font-size: 16px; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 5px; }
+
+  /* callout */
+  .callout { background: color-mix(in srgb, var(--accent) 7%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-radius: 10px; padding: 14px 18px; margin: 18px 0; font-size: 14px; }
+  .callout strong { color: var(--accent); }
+
+  /* prompt card */
+  .organelle { border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin: 28px 0; background: var(--panel); }
+  .org-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .org-swatch { width: 18px; height: 18px; border-radius: 5px; flex: none; }
+  .org-header h3 { margin: 0; font-size: 17px; }
+  .org-header .tag { font: 500 11px var(--mono); color: var(--muted); background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; }
+  .org-desc { font-size: 13.5px; color: var(--muted); margin: 0 0 16px; line-height: 1.5; }
+
+  .prompt-block { margin-bottom: 14px; }
+  .prompt-label { font: 600 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
+  .prompt-text { position: relative; background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 8px; padding: 12px 44px 12px 14px;
+    font: 13px/1.55 var(--mono); color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  .copy-btn { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,.07); border: 1px solid var(--line); border-radius: 6px;
+    color: var(--muted); font: 500 11px var(--mono); padding: 3px 8px; cursor: pointer; transition: background .15s; }
+  .copy-btn:hover { background: rgba(255,255,255,.14); }
+  .copy-btn.copied { color: var(--accent); }
+
+  /* builder table */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 18px 0; }
+  th { text-align: left; font: 600 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+    border-bottom: 1px solid var(--line); padding: 6px 10px; }
+  td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .tag-good { font: 500 11px var(--mono); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 4px; padding: 1px 6px; }
+  .tag-ok   { font: 500 11px var(--mono); color: var(--warm); background: color-mix(in srgb, var(--warm) 10%, transparent); border-radius: 4px; padding: 1px 6px; }
+  .tag-exp  { font: 500 11px var(--mono); color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); border-radius: 4px; padding: 1px 6px; }
+
+  /* toc */
+  .toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 32px 0; }
+  .toc h4 { margin: 0 0 10px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .toc ol { margin: 0; padding-left: 18px; }
+  .toc li { font-size: 13.5px; margin-bottom: 4px; }
+
+  @media (max-width: 600px) { .page { padding: 28px 16px 60px; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="home" href="cell-xr.html?model=models/animal-cell.web.glb">← CellXR</a>
+  <h1>Organelle Prompt Guide</h1>
+</nav>
+
+<div class="page">
+
+<p class="byline">AI generator prompts for cell biology visualisation · CellXR project</p>
+
+<div class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#how">How to prompt for cell structures</a></li>
+    <li><a href="#builders">Which builder to use</a></li>
+    <li><a href="#prompts">Organelle prompts</a>
+      <ol>
+        <li><a href="#cell-membrane">Cell Membrane</a></li>
+        <li><a href="#nucleus">Nucleus</a></li>
+        <li><a href="#mitochondria">Mitochondria</a></li>
+        <li><a href="#rough-er">Rough Endoplasmic Reticulum</a></li>
+        <li><a href="#smooth-er">Smooth Endoplasmic Reticulum</a></li>
+        <li><a href="#golgi">Golgi Apparatus</a></li>
+        <li><a href="#ribosome">Ribosomes</a></li>
+        <li><a href="#lysosome">Lysosome</a></li>
+        <li><a href="#centrosome">Centrosome</a></li>
+        <li><a href="#vacuole">Vacuole</a></li>
+      </ol>
+    </li>
+    <li><a href="#tips">Refinement tips</a></li>
+  </ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ HOW ══ -->
+<h2 id="how">How to prompt for cell structures</h2>
+
+<p>AI generators — whether image or 3D — respond best to prompts built from four layers: <strong>subject</strong>, <strong>form</strong>, <strong>material</strong>, and <strong>style</strong>. Cell organelles have well-defined canonical forms, so anchoring the prompt in biology gives the model the clearest signal.</p>
+
+<h3>The four layers</h3>
+
+<ol>
+  <li><strong>Subject</strong> — name the organelle and its biological role in one phrase. <em>"mitochondrion, energy-producing organelle"</em>. This sets the semantic target.</li>
+  <li><strong>Form</strong> — describe the 3D shape: cross-section vs. exterior, symmetry, inner structures. <em>"bean-shaped, double membrane, folded cristae inside"</em>.</li>
+  <li><strong>Material</strong> — surface quality and translucency. Biological membranes are thin lipid bilayers; they read best as semi-transparent or waxy. <em>"translucent phospholipid bilayer, subsurface scattering"</em>.</li>
+  <li><strong>Style</strong> — the visual register. For educational use, <em>"scientific illustration"</em> or <em>"textbook diagram, 3D render"</em> steers away from fantasy interpretations. For VR assets, add <em>"game-ready low-poly"</em> or <em>"stylised, smooth surfaces"</em>.</li>
+</ol>
+
+<div class="callout">
+  <strong>Key rule:</strong> every prompt here ends with a negative: <code>--no nucleus, no cell wall, no bacteria</code> (or the equivalent negative-prompt field). Without it, generators frequently add a nucleus to every structure they can't otherwise fill.
+</div>
+
+<h3>Cross-section vs. exterior</h3>
+
+<p>Most organelles are only meaningful when seen in cross-section — the outer surface of a mitochondrion is a plain oval. Add <em>"cut-away cross-section view, interior visible"</em> for any structure with important internal anatomy (nucleus, mitochondria, Golgi, ER). Use exterior view only for ribosomes and vesicles.</p>
+
+<h3>Scale anchoring</h3>
+
+<p>Generators have no innate sense of biological scale. Mention a reference: <em>"approximately 1–10 micrometres"</em> or <em>"smaller than the nucleus, larger than a ribosome"</em>. This helps maintain correct relative proportions when you assemble a full cell.</p>
+
+<h3>Colour</h3>
+
+<p>Scientific convention uses false colour to distinguish structures. Pick a palette before you start and lock each organelle to a hue. The prompts below use the colour palette from the CellXR animal-cell model. Swap to your own palette by replacing the colour description — keep hue, saturation, and the word <em>"matte"</em> or <em>"translucent"</em> to control specular response.</p>
+
+<!-- ═══════════════════════════════════════════════════════ BUILDERS ══ -->
+<h2 id="builders">Which builder to use</h2>
+
+<table>
+  <tr><th>Builder</th><th>Best for</th><th>3D output</th><th>Notes</th></tr>
+  <tr>
+    <td>Midjourney</td>
+    <td>Reference images, style exploration</td>
+    <td>No</td>
+    <td>High quality 2D; use <code>--ar 1:1 --style raw</code> for clean renders; good for checking colour palette before modelling</td>
+  </tr>
+  <tr>
+    <td>DALL·E 3 (ChatGPT)</td>
+    <td>Quick reference, educational illustrations</td>
+    <td>No</td>
+    <td>Add <em>"isolated on black background"</em> for easy masking; accepts long descriptive prompts well</td>
+  </tr>
+  <tr>
+    <td>Stable Diffusion (SDXL)</td>
+    <td>Iterating with negative prompts, ControlNet shapes</td>
+    <td>No</td>
+    <td>Negative prompts are first-class; use the negative fields provided below directly</td>
+  </tr>
+  <tr>
+    <td><strong>Meshy</strong></td>
+    <td>Text-to-3D, game-ready GLB</td>
+    <td><span class="tag-good">GLB/FBX</span></td>
+    <td>Use the 3D prompt column; set topology to <em>quad</em>; enable PBR materials</td>
+  </tr>
+  <tr>
+    <td>Tripo3D</td>
+    <td>Fast 3D from image or text</td>
+    <td><span class="tag-good">GLB</span></td>
+    <td>Feed a Midjourney reference image for better geometry; cross-section reference images work well</td>
+  </tr>
+  <tr>
+    <td>Luma Genie</td>
+    <td>Concept 3D, quick exploration</td>
+    <td><span class="tag-ok">OBJ/GLB</span></td>
+    <td>Less anatomically precise but fast; good for placeholder geometry</td>
+  </tr>
+  <tr>
+    <td>Spline AI</td>
+    <td>Web-ready 3D scenes</td>
+    <td><span class="tag-ok">GLTF</span></td>
+    <td>Exports GLTF directly; limited anatomical accuracy; best for stylised assets</td>
+  </tr>
+  <tr>
+    <td>Blender + AI plugin</td>
+    <td>Production pipeline</td>
+    <td><span class="tag-good">Any</span></td>
+    <td>Use AI for texture generation (DreamTexture, Stable Projectorz); model anatomy by hand for accuracy</td>
+  </tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ PROMPTS ══ -->
+<h2 id="prompts">Organelle prompts</h2>
+
+<p>Each card has an <strong>image prompt</strong> (Midjourney / DALL·E / SD) and a <strong>3D prompt</strong> (Meshy / Tripo3D). Copy the one that matches your builder. The <em>Negative</em> line is the negative-prompt field for SD; append <code>--no &lt;terms&gt;</code> for Midjourney.</p>
+
+<!-- ─── Cell Membrane ─── -->
+<div class="organelle" id="cell-membrane">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#e88080;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Cell Membrane</h3>
+    <span class="tag">plasma membrane</span>
+  </div>
+  <p class="org-desc">The outer boundary of the animal cell — a phospholipid bilayer with embedded proteins. Irregular, slightly wavy, and translucent. No cell wall.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-membrane-img">animal cell plasma membrane, phospholipid bilayer cross-section, irregular wavy organic surface, semi-transparent rose-pink membrane, embedded glycoproteins visible, scientific 3D render, subsurface scattering, dark background, isolated, textbook diagram style, photorealistic materials</div>
+    <button class="copy-btn" onclick="copy('p-membrane-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt (Meshy / Tripo3D)</div>
+    <div class="prompt-text" id="p-membrane-3d">3D model of an animal cell plasma membrane, open curved shell shape like a bowl or hollow sphere with uneven organic edges, semi-transparent pink, PBR translucent material, smooth low-poly stylised, game asset</div>
+    <button class="copy-btn" onclick="copy('p-membrane-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative (SD / Midjourney --no)</div>
+    <div class="prompt-text" id="p-membrane-neg">cell wall, rigid, bacteria, nucleus, organelles, green, plant cell</div>
+    <button class="copy-btn" onclick="copy('p-membrane-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Nucleus ─── -->
+<div class="organelle" id="nucleus">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#9b7fd4;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Nucleus</h3>
+    <span class="tag">control centre</span>
+  </div>
+  <p class="org-desc">The largest organelle — a sphere enclosed in a double nuclear envelope with pores. Contains the nucleolus (dense inner sphere) and chromatin threads.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-nucleus-img">cell nucleus, spherical organelle, cut-away cross-section, double nuclear envelope with nuclear pores, dense nucleolus at centre, chromatin strands inside, deep purple and violet tones, semi-transparent membrane, scientific 3D illustration, photorealistic, dark background, isolated, textbook style</div>
+    <button class="copy-btn" onclick="copy('p-nucleus-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-nucleus-3d">3D model of a cell nucleus, smooth sphere cut in half to show interior, outer double membrane with visible pore rings, smaller dense sphere inside (nucleolus), purple translucent material, PBR, stylised scientific, game-ready asset</div>
+    <button class="copy-btn" onclick="copy('p-nucleus-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-nucleus-neg">mitochondria, bacteria, cell wall, green, ribosomes visible on surface, animal, human anatomy</div>
+    <button class="copy-btn" onclick="copy('p-nucleus-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Mitochondria ─── -->
+<div class="organelle" id="mitochondria">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#3028bb;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Mitochondria</h3>
+    <span class="tag">powerhouse of the cell</span>
+  </div>
+  <p class="org-desc">Bean-shaped, with an outer membrane and an inner membrane folded into cristae. Interior matrix is dense. Appears in clusters throughout the cytoplasm.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-mito-img">mitochondrion organelle, cut-away cross-section view, bean-shaped oval, smooth outer membrane, inner membrane folded into cristae, dark blue-purple translucent membranes, orange-brown matrix interior, scientific 3D render, photorealistic PBR materials, isolated on dark background, textbook illustration style</div>
+    <button class="copy-btn" onclick="copy('p-mito-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-mito-3d">3D model of a mitochondrion, oval bean shape, outer smooth shell cut away to reveal inner folded cristae membranes, blue-purple translucent outer membrane, orange-brown inner folds, PBR materials, stylised scientific game asset, smooth topology</div>
+    <button class="copy-btn" onclick="copy('p-mito-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-mito-neg">nucleus, ribosome, cell wall, green, flat, 2D, cartoon simple</div>
+    <button class="copy-btn" onclick="copy('p-mito-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Rough ER ─── -->
+<div class="organelle" id="rough-er">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#4444cc;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Rough Endoplasmic Reticulum</h3>
+    <span class="tag">protein factory</span>
+  </div>
+  <p class="org-desc">A network of flattened membrane sacs (cisternae) studded with ribosomes on the cytoplasmic surface. Located near the nucleus.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-rer-img">rough endoplasmic reticulum organelle, network of flattened membrane sacs, parallel stacked cisternae, covered in tiny orange ribosome dots on outer surface, blue translucent membrane, close to nucleus, scientific 3D render, cross-section view, photorealistic, dark background, textbook diagram</div>
+    <button class="copy-btn" onclick="copy('p-rer-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-rer-3d">3D model of rough endoplasmic reticulum, stacked flat membrane sheets arranged in parallel folds, surface covered with small sphere bumps representing ribosomes, blue-indigo translucent membrane material, PBR, stylised scientific, game-ready asset</div>
+    <button class="copy-btn" onclick="copy('p-rer-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-rer-neg">smooth ER, no ribosomes, nucleus, mitochondria, green, bacteria, cell wall</div>
+    <button class="copy-btn" onclick="copy('p-rer-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Smooth ER ─── -->
+<div class="organelle" id="smooth-er">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#7a22aa;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Smooth Endoplasmic Reticulum</h3>
+    <span class="tag">lipid synthesis</span>
+  </div>
+  <p class="org-desc">A network of curved, branching membrane tubules — no ribosomes on the surface. Synthesises lipids and hormones. More tubular and looping than rough ER.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-ser-img">smooth endoplasmic reticulum organelle, branching curved membrane tubules, tangled network of hollow tubes, no ribosomes on surface, deep purple translucent membrane, organic flowing forms, scientific 3D illustration, photorealistic PBR, isolated on dark background, textbook diagram style</div>
+    <button class="copy-btn" onclick="copy('p-ser-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-ser-3d">3D model of smooth endoplasmic reticulum, network of curved hollow tubes branching and interconnecting, no surface bumps, smooth membrane, purple-violet translucent PBR material, organic flowing shape, stylised scientific game asset</div>
+    <button class="copy-btn" onclick="copy('p-ser-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-ser-neg">ribosomes, bumpy surface, rough ER, nucleus, bacteria, cell wall, green</div>
+    <button class="copy-btn" onclick="copy('p-ser-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Golgi ─── -->
+<div class="organelle" id="golgi">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#5a9e78;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Golgi Apparatus</h3>
+    <span class="tag">shipping department</span>
+  </div>
+  <p class="org-desc">A stack of curved, flattened membrane sacs (cisternae) — like a stack of deflated balloons. Has a cis face (receiving from ER) and a trans face (shipping vesicles).</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-golgi-img">Golgi apparatus organelle, stack of curved flattened membrane sacs, cisternae stacked parallel like pita breads, vesicles budding from edges, green-teal translucent membrane, cross-section view showing layered structure, scientific 3D illustration, photorealistic, dark background, textbook diagram</div>
+    <button class="copy-btn" onclick="copy('p-golgi-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-golgi-3d">3D model of Golgi apparatus, stack of curved flattened disc-shaped membrane sacs arranged in layers, small sphere vesicles budding from the edges, green translucent PBR membrane material, stylised scientific game-ready asset, smooth quad topology</div>
+    <button class="copy-btn" onclick="copy('p-golgi-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-golgi-neg">nucleus, ribosome, mitochondria, rough surface, cell wall, bacteria, blue, purple</div>
+    <button class="copy-btn" onclick="copy('p-golgi-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Ribosome ─── -->
+<div class="organelle" id="ribosome">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#cc6633;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Ribosomes</h3>
+    <span class="tag">protein synthesis</span>
+  </div>
+  <p class="org-desc">Tiny two-subunit complexes — a large and a small subunit fitting together. Appear as dense dots ≈ 25 nm diameter. Occur free in the cytoplasm or bound to rough ER.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-ribo-img">ribosome molecular complex, two subunits (large and small), dense granule approximately 25 nanometres, orange-brown protein complex, scientific 3D molecular visualisation, isolated single ribosome macro view, photorealistic PBR, dark background, textbook diagram style, no cell shown</div>
+    <button class="copy-btn" onclick="copy('p-ribo-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-ribo-3d">3D model of a ribosome, two interlocking rounded subunits (one larger dome, one smaller cap), dense orange-brown PBR material, very small spherical complex, stylised scientific game asset, smooth surfaces</div>
+    <button class="copy-btn" onclick="copy('p-ribo-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-ribo-neg">cell membrane, nucleus, mitochondria, large, ER, green, cartoon</div>
+    <button class="copy-btn" onclick="copy('p-ribo-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Lysosome ─── -->
+<div class="organelle" id="lysosome">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#cc3333;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Lysosome</h3>
+    <span class="tag">recycling centre</span>
+  </div>
+  <p class="org-desc">A small, roughly spherical membrane-bound sac containing digestive enzymes. Dense interior, single membrane. Size 0.1–1.2 µm.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-lyso-img">lysosome organelle, small spherical membrane vesicle, single lipid bilayer membrane, dense interior with digestive enzyme contents, red translucent membrane, scientific 3D render, isolated on dark background, photorealistic PBR materials, textbook diagram style</div>
+    <button class="copy-btn" onclick="copy('p-lyso-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-lyso-3d">3D model of a lysosome, small smooth sphere, single membrane shell, dense filled interior visible in cross-section, red translucent PBR material, stylised scientific game asset</div>
+    <button class="copy-btn" onclick="copy('p-lyso-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-lyso-neg">large, nucleus, mitochondria, ribosome, cell wall, green, bacteria</div>
+    <button class="copy-btn" onclick="copy('p-lyso-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Centrosome ─── -->
+<div class="organelle" id="centrosome">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#d4a535;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Centrosome</h3>
+    <span class="tag">cell division organiser</span>
+  </div>
+  <p class="org-desc">Two centrioles arranged at right angles — each a hollow cylinder of 9 triplet microtubule sets. Surrounded by pericentriolar material. Found near the nucleus.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-centro-img">centrosome with two centrioles, pair of hollow cylinders arranged perpendicular to each other, each cylinder made of 9 triplet microtubule bundles arranged in a ring, golden-yellow tone, pericentriolar material surrounding, scientific 3D molecular illustration, photorealistic, dark background, textbook diagram style</div>
+    <button class="copy-btn" onclick="copy('p-centro-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-centro-3d">3D model of a centrosome, two hollow cylindrical centrioles at right angles, each cylinder composed of 9 triplet tubes around the circumference, yellow-gold PBR material, small organelle, stylised scientific game asset</div>
+    <button class="copy-btn" onclick="copy('p-centro-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-centro-neg">nucleus, mitochondria, flat, membrane, vesicle, green, bacteria</div>
+    <button class="copy-btn" onclick="copy('p-centro-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ─── Vacuole ─── -->
+<div class="organelle" id="vacuole">
+  <div class="org-header">
+    <div class="org-swatch" style="background:#4499cc;border:2px solid rgba(255,255,255,.15)"></div>
+    <h3>Vacuole</h3>
+    <span class="tag">storage compartment</span>
+  </div>
+  <p class="org-desc">In animal cells, vacuoles are small and numerous — temporary storage sacs for water, ions, or waste. Single membrane (tonoplast). More irregular than a lysosome.</p>
+
+  <div class="prompt-block">
+    <div class="prompt-label">Image prompt</div>
+    <div class="prompt-text" id="p-vacuole-img">animal cell vacuole, small membrane-bound storage sac, slightly irregular oval shape, single tonoplast membrane, clear or pale blue watery interior, semi-transparent blue membrane, scientific 3D illustration, isolated on dark background, photorealistic, textbook diagram style</div>
+    <button class="copy-btn" onclick="copy('p-vacuole-img',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">3D prompt</div>
+    <div class="prompt-text" id="p-vacuole-3d">3D model of an animal cell vacuole, small irregular oval sac, thin single membrane, translucent pale blue PBR material, watery clear interior, stylised scientific game asset, smooth topology</div>
+    <button class="copy-btn" onclick="copy('p-vacuole-3d',this)">copy</button>
+  </div>
+  <div class="prompt-block">
+    <div class="prompt-label">Negative</div>
+    <div class="prompt-text" id="p-vacuole-neg">large central vacuole, plant cell, nucleus, mitochondria, ribosomes, green</div>
+    <button class="copy-btn" onclick="copy('p-vacuole-neg',this)">copy</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ TIPS ══ -->
+<h2 id="tips">Refinement tips</h2>
+
+<h3>If the shape is wrong</h3>
+<p>Add a reference to a familiar object: <em>"Golgi apparatus shaped like a stack of pita breads"</em>, <em>"mitochondrion shaped like a kidney bean"</em>. Everyday analogies outperform pure biology terminology for shape control.</p>
+
+<h3>If the colour bleeds</h3>
+<p>Specify the colour as an exclusive: <em>"only deep purple, no green, no red"</em>. In Midjourney append <code>--no green --no red</code>. In SDXL put the unwanted colour in the negative prompt at weight 1.4.</p>
+
+<h3>If the material looks plastic</h3>
+<p>Add <em>"subsurface scattering, biological tissue, translucent lipid bilayer, thin membrane"</em>. For 3D builders, request <em>"PBR transmission material, IOR 1.45"</em>.</p>
+
+<h3>Testing across builders</h3>
+<p>Run each image prompt in Midjourney and DALL·E first. Pick the rendering that best matches the anatomy. Feed that image as a reference into Meshy or Tripo3D for the 3D step. This image-to-3D pipeline consistently produces better geometry than pure text-to-3D.</p>
+
+<h3>Assembling the full cell</h3>
+<p>Generate each organelle at a consistent relative scale. Use the nucleus as your anchor — it should be roughly 5–10× the diameter of a single mitochondrion. Bring all assets into Blender, scale to match, then export one GLB. The CellXR <a href="annotation-helper.html">Annotation Helper</a> can label the parts and generate the grouping JSON for the 3D viewer.</p>
+
+</div><!-- .page -->
+
+<script>
+function copy(id, btn) {
+  const text = document.getElementById(id).textContent.trim();
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1800);
+  });
+}
+</script>
+</body>
+</html>
