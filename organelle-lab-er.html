@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ER Generator — CellXR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ink:#0d1519;--panel:#131e24;--line:rgba(150,196,205,.16);--text:#e4ecee;--muted:#8ea2a7;
+    --accent:#6ef0c6;--warm:#ffb04a;
+    --display:"Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--ink);color:var(--text);font:14px/1.5 var(--display);overflow:hidden;}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;}
+  .panel{position:fixed;top:12px;left:12px;bottom:12px;width:300px;overflow-y:auto;z-index:2;
+    background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;align-content:start;}
+  .panel.collapsed{bottom:auto;}
+  .panel.collapsed>:not(header){display:none;}
+  header{display:flex;align-items:baseline;gap:8px;}
+  h1{margin:0;font-size:18px;letter-spacing:-.02em;flex:1;}
+  header button{font:500 11px var(--mono);color:var(--muted);background:none;border:1px solid var(--line);border-radius:6px;padding:3px 8px;cursor:pointer;}
+  .lead{margin:0;color:var(--muted);font-size:12px;}
+  .sec{font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:4px;}
+  .row{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;font-size:12.5px;}
+  .row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent);}
+  .row output{font:500 11px var(--mono);color:var(--muted);}
+  .btns{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn{font:500 12px var(--display);padding:5px 10px;border-radius:6px;border:1px solid var(--line);
+    background:rgba(255,255,255,.05);color:var(--text);cursor:pointer;}
+  .btn:hover{background:rgba(255,255,255,.1);}
+  .btn.primary{background:var(--accent);color:#08231a;border-color:transparent;font-weight:700;}
+  details{border:1px solid var(--line);border-radius:8px;padding:6px 10px;}
+  details[open]{padding-bottom:10px;}
+  summary{cursor:pointer;font:600 12px var(--display);display:flex;align-items:center;gap:6px;list-style:none;}
+  summary::-webkit-details-marker{display:none;}
+  summary::before{content:"▸";color:var(--muted);font-size:10px;transition:transform .15s;}
+  details[open]>summary::before{transform:rotate(90deg);}
+  pre{margin:8px 0 0;font:12px/1.55 var(--mono);color:var(--accent);white-space:pre-wrap;word-break:break-all;
+    background:rgba(0,0,0,.3);border-radius:6px;padding:8px 10px;}
+  .hint{position:fixed;right:14px;bottom:12px;z-index:2;font:500 11px var(--mono);color:var(--muted);
+    background:color-mix(in srgb,var(--panel) 85%,transparent);border:1px solid var(--line);
+    border-radius:6px;padding:5px 9px;pointer-events:none;}
+  .status{position:fixed;right:14px;top:12px;z-index:2;font:500 11px var(--mono);color:var(--muted);
+    background:color-mix(in srgb,var(--panel) 85%,transparent);border:1px solid var(--line);
+    border-radius:6px;padding:5px 9px;}
+  @media(max-width:680px){.panel{width:calc(100vw - 24px);bottom:auto;max-height:55vh;}}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="panel" id="panel">
+  <header>
+    <h1>ER Generator</h1>
+    <button onclick="document.getElementById('panel').classList.toggle('collapsed')">≡</button>
+  </header>
+  <p class="lead">Unduloid + triunduloid SDF raymarcher. 1 unit = 1 µm.</p>
+
+  <div class="sec">Smooth ER — Tubules</div>
+
+  <div class="row">
+    <label>Tube radius mean</label>
+    <output id="o-rmean">0.035 µm</output>
+    <input type="range" id="s-rmean" min="0.015" max="0.060" step="0.001" value="0.035">
+  </div>
+  <div class="row">
+    <label>Unduloid amplitude</label>
+    <output id="o-ramp">0.008 µm</output>
+    <input type="range" id="s-ramp" min="0.000" max="0.020" step="0.001" value="0.008">
+  </div>
+  <div class="row">
+    <label>Unduloid period</label>
+    <output id="o-period">0.18 µm</output>
+    <input type="range" id="s-period" min="0.06" max="0.50" step="0.01" value="0.18">
+  </div>
+  <div class="row">
+    <label>Junction smoothing k</label>
+    <output id="o-blend">0.040 µm</output>
+    <input type="range" id="s-blend" min="0.005" max="0.100" step="0.005" value="0.040">
+  </div>
+
+  <div class="sec">Rough ER — Sheets</div>
+
+  <div class="row">
+    <label>Sheet count</label>
+    <output id="o-nsheets">4</output>
+    <input type="range" id="s-nsheets" min="1" max="6" step="1" value="4">
+  </div>
+  <div class="row">
+    <label>Sheet gap</label>
+    <output id="o-gap">0.150 µm</output>
+    <input type="range" id="s-gap" min="0.06" max="0.30" step="0.005" value="0.150">
+  </div>
+  <div class="row">
+    <label>Sheet width</label>
+    <output id="o-sheetw">0.55 µm</output>
+    <input type="range" id="s-sheetw" min="0.20" max="0.90" step="0.01" value="0.55">
+  </div>
+  <div class="row">
+    <label>Sheet thickness</label>
+    <output id="o-sheett">0.025 µm</output>
+    <input type="range" id="s-sheett" min="0.010" max="0.060" step="0.001" value="0.025">
+  </div>
+  <div class="row">
+    <label>Fenestration radius</label>
+    <output id="o-fen">0.028 µm</output>
+    <input type="range" id="s-fen" min="0.000" max="0.055" step="0.001" value="0.028">
+  </div>
+
+  <div class="btns">
+    <button class="btn primary" onclick="resetView()">Reset view</button>
+    <button class="btn" onclick="screenshot()">Screenshot</button>
+  </div>
+
+  <details>
+    <summary>SDF equations</summary>
+    <pre>// Unduloid tube
+float r = rMean
+  - rAmp * cos(2π·t / T);
+// t = arc length along tube
+
+// Smooth junction (triunduloid)
+float smin(a, b, k) {
+  float h = max(k-|a-b|,0)/k;
+  return min(a,b)-h³·k/6;
+}
+
+// Rough ER sheet + fenestrations
+float slab = max(|p.y-y0|-ht,
+             max(|p.x|-hw, |p.z|-hw));
+vec2 cell = mod(p.xz, fp) - fp/2;
+return max(slab, -(|cell|-fr));
+
+// Steiner 120° angles
+// u1+u2+u3 = 0  (unit vectors)</pre>
+  </details>
+
+  <details>
+    <summary>Scale reference</summary>
+    <pre>1 unit  = 1 µm
+Tube ∅  = 50–100 nm  (0.05–0.1)
+Neck ∅  = rMean – rAmp (×2)
+Sheet t = ~25 nm  (0.025)
+Sheet Δy= ~150 nm (0.15)
+Fen ∅   = ~56 nm  (0.028 r)</pre>
+  </details>
+</div>
+
+<div class="status" id="status">compiling…</div>
+<div class="hint">drag: rotate · scroll: zoom · right-drag: pan</div>
+
+<!-- ════════════════════════════════ SHADERS ════════════════════════════════ -->
+
+<script id="vs" type="x-shader/x-vertex">
+#version 300 es
+in vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+#version 300 es
+precision highp float;
+
+uniform vec2  uRes;
+uniform float uYaw;
+uniform float uPitch;
+uniform float uZoom;
+uniform vec3  uTarget;
+uniform float uRMean;
+uniform float uRAmp;
+uniform float uPeriod;
+uniform float uBlend;
+uniform float uNSheets;
+uniform float uSheetGap;
+uniform float uSheetW;
+uniform float uSheetT;
+uniform float uFenRad;
+uniform vec3  uTA[12];
+uniform vec3  uTB[12];
+
+out vec4 fragColor;
+
+const float PI       = 3.14159265359;
+const int   STEPS    = 220;
+const float MAX_D    = 5.5;
+const float EPSILON  = 0.00075;
+
+// ── SDF primitives ────────────────────────────────────────────────────
+
+float smin(float a, float b, float k) {
+    float h = max(k - abs(a - b), 0.0) / k;
+    return min(a, b) - h * h * h * k * (1.0 / 6.0);
+}
+
+// Unduloid tube from a to b with sinusoidally varying radius.
+// rMean: mean radius (µm), rAmp: amplitude (µm), T: period (µm).
+float sdUnduloidTube(vec3 p, vec3 a, vec3 b,
+                     float rMean, float rAmp, float T) {
+    vec3  ba  = b - a;
+    float len = length(ba);
+    float h   = clamp(dot(p - a, ba) / (len * len), 0.0, 1.0);
+    float t   = h * len;
+    float d   = length(p - (a + h * ba));
+    float r   = rMean - rAmp * cos(2.0 * PI * t / T);
+    return d - r;
+}
+
+// Rough ER sheet: finite slab with periodic fenestrations and fringed edges.
+// y0: sheet Y, hw: XZ half-width, ht: half-thickness, fp: fen period, fr: fen radius.
+float sdRoughERSheet(vec3 p, float y0, float hw, float ht,
+                     float fp, float fr) {
+    // Organic fringe at sheet boundary
+    float fringe = 0.038 * sin(p.x * 8.3 + 0.7) * sin(p.z * 9.1 - 0.3);
+    float dy  = abs(p.y - y0) - ht;
+    float dx  = abs(p.x) - hw + fringe;
+    float dz  = abs(p.z) - hw + fringe;
+    float slab = max(dy, max(dx, dz));
+    if (fr > 0.001) {
+        vec2 cell = mod(vec2(p.x, p.z) + fp * 0.5, fp) - fp * 0.5;
+        float fen = length(cell) - fr;
+        return max(slab, -fen);
+    }
+    return slab;
+}
+
+// ── Scene ─────────────────────────────────────────────────────────────
+
+vec2 scene(vec3 p) {
+    float d   = MAX_D;
+    float mat = 0.0;
+
+    // Rough ER sheets
+    float hw = uSheetW;
+    float ht = uSheetT * 0.5;
+    float fp = 0.120;
+    float fr = uFenRad;
+    for (int i = 0; i < 6; i++) {
+        if (float(i) >= uNSheets) break;
+        float s = sdRoughERSheet(p, float(i) * uSheetGap, hw, ht, fp, fr);
+        if (s < d) { d = s; mat = 0.0; }
+    }
+
+    // Smooth ER unduloid network (12 segments, Steiner-tree topology)
+    float k = uBlend;
+    for (int i = 0; i < 12; i++) {
+        float t = sdUnduloidTube(p, uTA[i], uTB[i], uRMean, uRAmp, uPeriod);
+        if (t < d) mat = 1.0;
+        d = smin(d, t, k);
+    }
+
+    return vec2(d, mat);
+}
+
+float sceneDist(vec3 p) { return scene(p).x; }
+
+// ── Raymarching ───────────────────────────────────────────────────────
+
+vec2 march(vec3 ro, vec3 rd) {
+    float t = 0.001;
+    float m = -1.0;
+    for (int i = 0; i < STEPS; i++) {
+        vec2 res = scene(ro + rd * t);
+        if (res.x < EPSILON * t) { m = res.y; break; }
+        t += res.x;
+        if (t > MAX_D) break;
+    }
+    return vec2(t, m);
+}
+
+vec3 calcNormal(vec3 p) {
+    vec2 e = vec2(0.00025, -0.00025);
+    return normalize(
+        e.xyy * sceneDist(p + e.xyy) +
+        e.yyx * sceneDist(p + e.yyx) +
+        e.yxy * sceneDist(p + e.yxy) +
+        e.xxx * sceneDist(p + e.xxx));
+}
+
+float calcAO(vec3 pos, vec3 nor) {
+    float occ = 0.0, sca = 1.0;
+    for (int i = 0; i < 6; i++) {
+        float h = 0.008 + 0.10 * float(i) / 5.0;
+        occ += (h - sceneDist(pos + h * nor)) * sca;
+        sca *= 0.88;
+    }
+    return clamp(1.0 - 4.0 * occ, 0.0, 1.0);
+}
+
+// ── Camera ─────────────────────────────────────────────────────────────
+
+mat3 camMat(float yaw, float pitch) {
+    float cy = cos(yaw),   sy = sin(yaw);
+    float cp = cos(pitch), sp = sin(pitch);
+    return mat3(cy, 0, -sy,  0, 1, 0,  sy, 0, cy) *
+           mat3(1, 0, 0,  0, cp, sp,  0, -sp, cp);
+}
+
+// ── Main ───────────────────────────────────────────────────────────────
+
+void main() {
+    vec2 uv  = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+    mat3 rot = camMat(uYaw, uPitch);
+    vec3 ro  = uTarget + rot * vec3(0.0, 0.0, -uZoom);
+    vec3 rd  = normalize(rot * vec3(uv, 1.35));
+
+    // Background gradient
+    float bgY = uv.y * 0.5 + 0.5;
+    vec3  col = mix(vec3(0.03, 0.05, 0.09), vec3(0.06, 0.10, 0.16), bgY);
+
+    vec2 res = march(ro, rd);
+    float t  = res.x;
+    float m  = res.y;
+
+    if (t < MAX_D) {
+        vec3  pos = ro + rd * t;
+        vec3  nor = calcNormal(pos);
+        float ao  = calcAO(pos, nor);
+
+        // Materials
+        vec3 baseCol = (m < 0.5)
+            ? vec3(0.28, 0.36, 0.78)   // Rough ER: blue-indigo
+            : vec3(0.50, 0.18, 0.82);  // Smooth ER: deep purple
+
+        // Lights
+        vec3 lKey = normalize(vec3(1.4, 2.2, -0.8));
+        vec3 lFill= normalize(vec3(-1.0, 0.5, 1.2));
+        float dKey = max(0.0, dot(nor, lKey));
+        float dFill= max(0.0, dot(nor, lFill)) * 0.25;
+
+        // Blinn-Phong specular
+        vec3 h_bph = normalize(lKey - rd);
+        float spec  = pow(max(0.0, dot(nor, h_bph)), 80.0);
+
+        // Fresnel rim (membrane translucency)
+        float fres = pow(1.0 - abs(dot(nor, -rd)), 4.0);
+
+        vec3 diffuse  = baseCol * (dKey * 0.75 + dFill + 0.10);
+        vec3 specular = vec3(0.55 + 0.45 * m) * spec;
+        vec3 rim      = baseCol * 0.6 * fres;
+
+        col = (diffuse + specular + rim) * ao;
+
+        // Depth fog
+        float fog = 1.0 - exp(-0.25 * max(0.0, t - 0.5));
+        col = mix(col, vec3(0.04, 0.07, 0.13), clamp(fog, 0.0, 0.7));
+    }
+
+    // Vignette
+    vec2 q = gl_FragCoord.xy / uRes;
+    col *= 0.5 + 0.5 * pow(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y), 0.14);
+
+    // Gamma
+    fragColor = vec4(pow(clamp(col, 0.0, 1.0), vec3(0.4545)), 1.0);
+}
+</script>
+
+<!-- ════════════════════════════════ JS ════════════════════════════════ -->
+<script>
+'use strict';
+
+// ── ER network: 12 unduloid tube segments (Steiner-tree topology, µm) ──
+//
+// Rough ER sheets are centred near origin (±0.55 µm in X and Z).
+// Smooth ER exits at x ≈ 0.58-0.60 and branches outward via Steiner
+// junctions J1-J5 at approximately 120° contact angles.
+//
+//   E1(0.60,0.22,0.00) → J1 → J2 → T1
+//                             ↓ J4 → T3
+//                             ↓ T4 (frays back toward RER)
+//                        → J3 → T2
+//                             ↓ J5 → T5
+//                             ↓ T6 (frays back toward RER)
+//   E2(0.58,0.40,0.18) → J2   (creates realistic closed loop)
+//
+const TUBE_A = new Float32Array([
+  // 0: E1→J1
+  0.60, 0.22, 0.00,
+  // 1: J1→J2 (upper Steiner branch, ~120° from J1→J3)
+  0.76, 0.22, 0.00,
+  // 2: J1→J3 (lower Steiner branch)
+  0.76, 0.22, 0.00,
+  // 3: J2→T1 (upper-right terminal)
+  1.00, 0.52, 0.05,
+  // 4: J2→J4 (secondary Steiner junction, upper)
+  1.00, 0.52, 0.05,
+  // 5: J3→T2 (lower-right terminal)
+  1.00,-0.08, 0.22,
+  // 6: J3→J5 (secondary Steiner junction, lower)
+  1.00,-0.08, 0.22,
+  // 7: J4→T3 (far upper terminal)
+  0.76, 0.88, 0.22,
+  // 8: J4→T4 (fray: turns back toward rough ER boundary)
+  0.76, 0.88, 0.22,
+  // 9: J5→T5 (far lower terminal)
+  0.76,-0.44, 0.38,
+  // 10: J5→T6 (fray: turns back toward rough ER boundary)
+  0.76,-0.44, 0.38,
+  // 11: E2→J2 (second rough-ER exit; closes a loop — biologically realistic)
+  0.58, 0.40, 0.18,
+]);
+
+const TUBE_B = new Float32Array([
+  // 0
+  0.76, 0.22, 0.00,   // J1
+  // 1
+  1.00, 0.52, 0.05,   // J2
+  // 2
+  1.00,-0.08, 0.22,   // J3
+  // 3
+  1.50, 0.52, 0.05,   // T1
+  // 4
+  0.76, 0.88, 0.22,   // J4
+  // 5
+  1.50,-0.08, 0.22,   // T2
+  // 6
+  0.76,-0.44, 0.38,   // J5
+  // 7
+  1.15, 1.10, 0.35,   // T3
+  // 8
+  0.38, 1.10, 0.35,   // T4 (fray, back toward RER)
+  // 9
+  1.15,-0.65, 0.50,   // T5
+  // 10
+  0.38,-0.65, 0.50,   // T6 (fray, back toward RER)
+  // 11
+  1.00, 0.52, 0.05,   // J2 (loop)
+]);
+
+// ── WebGL 2 setup ───────────────────────────────────────────────────────
+
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2');
+if (!gl) { document.querySelector('.status').textContent = 'WebGL 2 not available'; }
+
+function compileShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+function buildProgram(vsSrc, fsSrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compileShader(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(p, compileShader(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+
+let prog;
+try {
+  prog = buildProgram(
+    document.getElementById('vs').textContent,
+    document.getElementById('fs').textContent
+  );
+  document.getElementById('status').textContent = '1 unit = 1 µm · WebGL 2';
+} catch (e) {
+  document.getElementById('status').textContent = 'Shader error — see console';
+  console.error(e);
+}
+
+// Full-screen quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER,
+  new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+const aPos = gl.getAttribLocation(prog, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Uniform locations
+const U = {};
+[
+  'uRes','uYaw','uPitch','uZoom','uTarget',
+  'uRMean','uRAmp','uPeriod','uBlend',
+  'uNSheets','uSheetGap','uSheetW','uSheetT','uFenRad',
+  'uTA','uTB',
+].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+
+// ── Camera state ──────────────────────────────────────────────────────
+
+let yaw = -0.55, pitch = 0.22, zoom = 2.2;
+let target = [0.78, 0.22, 0.20];
+const DEF = { yaw: -0.55, pitch: 0.22, zoom: 2.2, target: [0.78, 0.22, 0.20] };
+
+// ── Parameters ───────────────────────────────────────────────────────
+
+const params = {
+  rMean:   0.035,
+  rAmp:    0.008,
+  period:  0.18,
+  blend:   0.040,
+  nSheets: 4,
+  gap:     0.150,
+  sheetW:  0.55,
+  sheetT:  0.025,
+  fen:     0.028,
+};
+
+function bindSlider(id, key, outId, fmt) {
+  const s = document.getElementById(id);
+  const o = document.getElementById(outId);
+  s.addEventListener('input', () => {
+    params[key] = parseFloat(s.value);
+    o.textContent = fmt(params[key]);
+  });
+}
+
+const µm = v => v.toFixed(3) + ' µm';
+const int = v => Math.round(v).toString();
+
+bindSlider('s-rmean',   'rMean',   'o-rmean',  µm);
+bindSlider('s-ramp',    'rAmp',    'o-ramp',   µm);
+bindSlider('s-period',  'period',  'o-period', µm);
+bindSlider('s-blend',   'blend',   'o-blend',  µm);
+bindSlider('s-nsheets', 'nSheets', 'o-nsheets',int);
+bindSlider('s-gap',     'gap',     'o-gap',    µm);
+bindSlider('s-sheetw',  'sheetW',  'o-sheetw', µm);
+bindSlider('s-sheett',  'sheetT',  'o-sheett', µm);
+bindSlider('s-fen',     'fen',     'o-fen',    µm);
+
+// ── Orbit controls ───────────────────────────────────────────────────
+
+let drag = null;
+canvas.addEventListener('mousedown', e => {
+  drag = { x: e.clientX, y: e.clientY, yaw, pitch, btn: e.button,
+           tx: target[0], ty: target[1], tz: target[2] };
+});
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  const dx = (e.clientX - drag.x) * 0.005;
+  const dy = (e.clientY - drag.y) * 0.005;
+  if (drag.btn === 0) {
+    yaw   = drag.yaw   + dx;
+    pitch = Math.max(-1.4, Math.min(1.4, drag.pitch - dy));
+  } else if (drag.btn === 2) {
+    // Pan in camera-local XY
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    target[0] = drag.tx - dx * cy * 0.4;
+    target[2] = drag.tz - dx * sy * 0.4;
+    target[1] = drag.ty + dy * 0.4;
+  }
+});
+window.addEventListener('mouseup', () => drag = null);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => {
+  zoom = Math.max(0.3, Math.min(5.0, zoom + e.deltaY * 0.002));
+  e.preventDefault();
+}, { passive: false });
+
+// Touch orbit
+let touches = {};
+canvas.addEventListener('touchstart', e => {
+  [...e.changedTouches].forEach(t => touches[t.identifier] = { x: t.clientX, y: t.clientY });
+});
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    const t  = e.touches[0];
+    const pr = touches[t.identifier];
+    if (!pr) return;
+    yaw   += (t.clientX - pr.x) * 0.005;
+    pitch  = Math.max(-1.4, Math.min(1.4, pitch - (t.clientY - pr.y) * 0.005));
+    touches[t.identifier] = { x: t.clientX, y: t.clientY };
+  } else if (e.touches.length === 2) {
+    const a = e.touches[0], b = e.touches[1];
+    const pa = touches[a.identifier], pb = touches[b.identifier];
+    if (!pa || !pb) return;
+    const dCur  = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const dPrev = Math.hypot(pa.x - pb.x, pa.y - pb.y);
+    zoom = Math.max(0.3, Math.min(5.0, zoom * (dPrev / dCur)));
+    touches[a.identifier] = { x: a.clientX, y: a.clientY };
+    touches[b.identifier] = { x: b.clientX, y: b.clientY };
+  }
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  [...e.changedTouches].forEach(t => delete touches[t.identifier]);
+});
+
+// ── Utilities ────────────────────────────────────────────────────────
+
+function resetView() {
+  yaw = DEF.yaw; pitch = DEF.pitch; zoom = DEF.zoom;
+  target = [...DEF.target];
+}
+
+function screenshot() {
+  render(); // ensure latest frame
+  const a = document.createElement('a');
+  a.download = 'er-generator.png';
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+
+// ── Render loop ─────────────────────────────────────────────────────
+
+function resize() {
+  canvas.width  = window.innerWidth  * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+function render() {
+  if (!prog) return;
+  gl.useProgram(prog);
+  gl.uniform2f(U.uRes, canvas.width, canvas.height);
+  gl.uniform1f(U.uYaw,    yaw);
+  gl.uniform1f(U.uPitch,  pitch);
+  gl.uniform1f(U.uZoom,   zoom);
+  gl.uniform3fv(U.uTarget, target);
+  gl.uniform1f(U.uRMean,   params.rMean);
+  gl.uniform1f(U.uRAmp,    params.rAmp);
+  gl.uniform1f(U.uPeriod,  params.period);
+  gl.uniform1f(U.uBlend,   params.blend);
+  gl.uniform1f(U.uNSheets, params.nSheets);
+  gl.uniform1f(U.uSheetGap,params.gap);
+  gl.uniform1f(U.uSheetW,  params.sheetW);
+  gl.uniform1f(U.uSheetT,  params.sheetT);
+  gl.uniform1f(U.uFenRad,  params.fen);
+  gl.uniform3fv(U.uTA, TUBE_A);
+  gl.uniform3fv(U.uTB, TUBE_B);
+  gl.bindVertexArray(vao);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+window.addEventListener('resize', () => { resize(); render(); });
+resize();
+
+(function loop() {
+  render();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
