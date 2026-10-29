@@ -2352,7 +2352,7 @@ const GOALS = {
   'Poke':                 { hint: 'Poke the cube with your index finger to set it spinning.', ev: ['poke'] },
   'Pinch to grab':        { hint: 'Pinch the cube and move it somewhere else.', check: (o, b) => b.ev.has('grab:pinch') && movedFrom(o, b, 0.3), done: 'You picked it up and moved it.' },
   'Push and pull':        { hint: 'Pinch the cube, then move your hand toward or away from the screen.', check: (o, b) => b.ev.has('grab:pinch') && Math.abs(o.position.z - b.pos.z) > 1, done: 'You changed its depth.' },
-  'Grab':                 { hint: 'Close your whole hand on the cube and move it.', check: (o, b) => b.ev.has('grab:grip') && movedFrom(o, b, 0.3), done: 'Palm grip works.' },
+  'Grab':                 { hint: 'Close your whole hand on the cube and move it (or resize it).', check: (o, b) => b.ev.has('grab:grip') && (movedFrom(o, b, 0.3) || Math.abs(o.scale.x / b.s - 1) > 0.15), done: 'Palm grip works.' },
   'Twist to rotate':      { hint: 'Grab the cube (close your fist), then turn your wrist.', ev: ['twist'], done: 'You turned it with your wrist.' },
   'Fist to spin':         { hint: 'Make a fist over the cube and drag to roll it.', check: (o, b) => b.ev.has('trackball') && turnedFrom(o, b, 45), done: 'Trackball spin done.' },
   'Open hand swipe':      { hint: 'Swipe an open hand quickly across the cube.', ev: ['flick'], done: 'Nice flick.' },
@@ -2395,9 +2395,11 @@ function tutLogEntry(outcome) {
     elapsed: tutGoal.t.toFixed(1) + 's',
     eventsEmitted: tutGoal.base ? [...tutGoal.base.ev] : [],
     hint: g?.hint || '',
+    detected: LABELS.map(l => tracks[l]).filter(t => t.visible)
+               .map(t => `${t.label}:${t.gesture}${t.pinching?'+pinch':''}${t.grab?' held':''}`),
   };
   tutFailLog.push(entry);
-  console.log(`[tut:${outcome}]`, entry.step, '| events:', entry.eventsEmitted.join(', ') || 'none', '| t:', entry.elapsed, '| fails:', entry.failCount);
+  console.log(`[tut:${outcome}]`, entry.step, '| events:', entry.eventsEmitted.join(', ') || 'none', '| t:', entry.elapsed, '| fails:', entry.failCount, '| detected:', entry.detected.join(' '));
   const btn = $('#tutLogBtn'); if (btn) btn.hidden = false;
   // challenge recording: first pass only; don't overwrite a pass with a later skip/fail
   if (challengeActive) {
