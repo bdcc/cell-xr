@@ -1064,6 +1064,12 @@ function startGrab(t, o, mode) {
 }
 function updateGrab(t, dt) {
   const g = t.grab, o = g.obj;
+  // Webcam: if grab started as pinch but hand has since settled into a full grip, upgrade to grip mode
+  // so wrist-roll twist becomes available.
+  if (g.mode === 'pinch' && t.source === 'webcam' && t.gesture === 'grab') {
+    g.mode = 'grip';
+    baseline(t);
+  }
   if (o.userData.two) updateTwo(o);
   else {
     let z = g.z0;
