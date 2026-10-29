@@ -196,6 +196,54 @@
   }
   .palm-menu button:hover, .palm-menu button.hot { background: color-mix(in srgb, var(--hand) 18%, transparent); border-color: var(--hand); color: var(--hand); }
 
+  /* Wrist button: hovers at the left wrist, right-hand dwell triggers parts picker */
+  #wristPickerBtn {
+    position: fixed; z-index: 8; width: 44px; height: 44px;
+    border-radius: 50%; display: grid; place-items: center;
+    background: var(--panel); border: 2px solid var(--line);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    font: 700 18px var(--display); color: var(--muted); pointer-events: none;
+    transition: border-color .15s, color .15s, transform .15s;
+    transform: translate(-50%, -50%);
+  }
+  #wristPickerBtn.hot { border-color: var(--hand); color: var(--hand); transform: translate(-50%, -50%) scale(1.18); }
+  /* Palm reveal: tap the palm-up button to open parts picker */
+  #palmRevealBtn {
+    position: fixed; z-index: 8; padding: 8px 14px; border-radius: 999px; cursor: pointer;
+    background: var(--panel); border: 1.5px solid var(--grab);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    font: 600 13px var(--display); color: var(--grab);
+    transform: translate(-50%, calc(-100% - 10px));
+    transition: background .1s;
+  }
+  #palmRevealBtn:hover, #palmRevealBtn.hot { background: color-mix(in srgb, var(--grab) 22%, var(--panel)); }
+  /* Parts picker: scrollable list of model organelle parts */
+  #partsPicker {
+    position: fixed; z-index: 9; min-width: 200px; max-height: 300px; overflow-y: auto;
+    background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line); border-radius: 10px; padding: 6px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, .4);
+  }
+  #partsPicker h3 {
+    margin: 0 0 2px; padding: 4px 10px; font: 600 10px var(--mono);
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  }
+  #partsPicker button {
+    display: block; width: 100%; text-align: left;
+    font: 500 14px var(--display); padding: 9px 12px; border-radius: 7px;
+    border: 1px solid transparent; background: transparent; color: var(--text); cursor: pointer;
+  }
+  #partsPicker button:hover, #partsPicker button.hot {
+    background: color-mix(in srgb, var(--hand) 18%, transparent); border-color: var(--hand); color: var(--hand);
+  }
+  #partsPicker button.hot {
+    /* dwell ring drawn as conic-gradient progress indicator */
+    background: color-mix(in srgb, var(--hand) 18%, transparent),
+      conic-gradient(var(--hand) calc(var(--p, 0) * 1turn), transparent 0);
+  }
+  #partsPicker button.active { background: color-mix(in srgb, var(--hand) 22%, transparent); color: var(--hand); }
+  #partsPicker button.clear-btn { color: var(--muted); }
+
   .toast {
     position: fixed; z-index: 7; left: 50%; transform: translateX(-50%);
     top: max(18px, env(safe-area-inset-top));
@@ -247,6 +295,25 @@
   .tut-target b { display: block; font: 700 18px var(--display); color: var(--c); }
   .tut-target small { display: block; font: 500 10.5px var(--mono); color: var(--muted); margin-top: 2px; }
   .tut-target.hot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 30%, transparent); }
+  /* Zone navigation: full half-screen tap areas replace the small circles after a step passes/fails */
+  .tut-zone {
+    position: absolute; top: 0; height: 100%; width: 50%; pointer-events: auto; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px;
+    border: none; background: transparent; transition: background .18s;
+  }
+  .tut-zone.left  { left: 0; }
+  .tut-zone.right { right: 0; }
+  .tut-zone .zone-label { font: 700 28px var(--display); color: var(--c); opacity: 0; transition: opacity .18s; pointer-events: none; }
+  .tut-zone .zone-sub   { font: 500 11px var(--mono); color: var(--muted); opacity: 0; transition: opacity .18s; letter-spacing: .08em; pointer-events: none; }
+  .tut-zone.hot { background: color-mix(in srgb, var(--c) 10%, transparent); }
+  .tut-zone.hot .zone-label, .tut-zone.hot .zone-sub { opacity: 1; }
+  .tut-zone .zone-ring {
+    width: 72px; height: 72px; border-radius: 50%; margin-top: 10px;
+    background: radial-gradient(circle, color-mix(in srgb, var(--panel) 85%, transparent) 56%, transparent 58%),
+      conic-gradient(var(--c) calc(var(--p, 0) * 1turn), color-mix(in srgb, var(--c) 25%, transparent) 0);
+    opacity: 0; transition: opacity .18s;
+  }
+  .tut-zone.hot .zone-ring { opacity: 1; }
   .tutor-depth { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
   .tutor-depth .fine { font: 12px/1.5 var(--display); color: var(--muted); }
   .tutor-goal { font: 500 12.5px var(--mono); color: var(--hand) !important; }
@@ -302,6 +369,9 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <div class="palm-menu" id="palmMenu" role="menu" aria-label="Palm menu" hidden></div>
+<div id="wristPickerBtn" aria-hidden="true" hidden>☰</div>
+<div id="palmRevealBtn" hidden>☰ Parts</div>
+<div id="partsPicker" role="menu" aria-label="Parts picker" hidden></div>
 <div class="drop-zone" id="dropZone" hidden><div>Drop a .glb model to load it</div></div>
 
 <div class="tutor compact" id="tutor" hidden>
@@ -341,6 +411,7 @@
     <button class="btn" id="tutRetrySkip">Skip →</button>
   </div>
   <div class="tutor-progress"><i id="tutBar"></i></div>
+  <button class="btn quiet" id="tutLogBtn" hidden style="font:11px var(--mono);padding:4px 8px" title="Download interaction log as JSON">↓ Log</button>
 </div>
 <div class="tut-targets" id="tutTargets" aria-hidden="true"></div>
 
@@ -375,6 +446,7 @@
         <label class="toggle"><input type="checkbox" id="g-pointer">Finger gun laser<small>J</small></label>
         <label class="toggle"><input type="checkbox" id="g-clap" checked>Reset · double clap <small>every set</small></label>
         <label class="toggle"><input type="checkbox" id="g-menu" checked>Palm menu · hold open hand still <small>every set</small></label>
+        <label class="toggle"><input type="checkbox" id="g-picker" checked>Parts picker · wrist tap or palm flip <small>every set</small></label>
       </div>
     </details>
   </section>
@@ -517,6 +589,36 @@
   </div>
 </div>
 
+<!-- Challenge mode start gate -->
+<div class="gate" id="challengeGate" hidden>
+  <div class="card" role="dialog" aria-labelledby="challengeGateTitle">
+    <h2 id="challengeGateTitle">XR Challenge 🤚</h2>
+    <p>Complete 18 hand gestures across 4 sets. Your score is graded and shareable.</p>
+    <p>Built for <a href="?model=models/animal-cell.web.glb">this 3D cell model</a> — an educational project about how cells work.</p>
+    <p class="fine">Works best with a webcam. Runs entirely in your browser — no data collected until you choose to share.</p>
+    <div class="row" style="gap:8px;display:flex;flex-wrap:wrap">
+      <button class="btn primary" id="btnChallenge">Start Challenge</button>
+      <button class="btn" id="btnChallengeModel">See the cell model →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Challenge result screen -->
+<div class="gate" id="challengeResult" hidden>
+  <div class="card" role="dialog" aria-labelledby="crTitle">
+    <div id="crBadge" style="font-size:48px;text-align:center;margin-bottom:4px"></div>
+    <h2 id="crTitle" style="text-align:center;margin-top:0"></h2>
+    <p id="crStats" class="fine" style="text-align:center"></p>
+    <textarea id="crShare" rows="8" readonly style="width:100%;box-sizing:border-box;font:12px var(--mono);background:var(--ink);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px;resize:none;margin:8px 0"></textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="crCopy">Copy result</button>
+      <button class="btn" id="crNative" hidden>Share →</button>
+      <button class="btn" id="crModel">See the cell →</button>
+    </div>
+    <p class="fine" id="crSubmitStatus" style="margin-top:8px;min-height:1em"></p>
+  </div>
+</div>
+
 <script type="module">
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -542,7 +644,7 @@ const settings = {
   poke: false, grab: true, grip: true, thumb: false, flick: false, trackball: false,
   depth: true, twist: true, twoHand: true,
   crane: false, squeeze: false, clap: true, dust: false, burst: false,
-  pointer: false, menu: true, aimMode: 'finger', aimGain: 2.2, craneSpeed: 2.5, craneMode: 'camera',
+  pointer: false, menu: true, picker: true, aimMode: 'finger', aimGain: 2.2, craneSpeed: 2.5, craneMode: 'camera',
   depthMode: 'window', selStyle: 'glow', videoMode: 'full', reach: 1, reachTouched: false, lock: 'free', sens: 1.2, friction: 1.1, depthGain: 5, camera: true, skeleton: true,
 };
 
@@ -980,6 +1082,9 @@ function updateGrab(t, dt) {
   const step = quatToRotVec(o.quaternion.clone().multiply(g.prevQ.clone().invert())).divideScalar(Math.max(dt, 1 / 120));
   g.rotVel.lerp(step, 0.3);
   g.prevQ.copy(o.quaternion);
+  // Tutorial: emit 'twist' once rotation from base exceeds 25° (event persists even if user releases)
+  if (tut.on && !tut.playing && tutGoal.base && !o.userData.two)
+    if (o.quaternion.angleTo(tutGoal.base.q) > THREE.MathUtils.degToRad(25)) tutEmit('twist');
 }
 function endGrab(t) {
   const g = t.grab, o = g.obj;
@@ -1059,6 +1164,8 @@ function interact(dt, labels) {
     if (!t.pinching && t.gesture !== 'grab') t.consumed = false;
     // A pinch while the palm menu is open belongs to the menu (choose an item, or close it).
     if (menu.open && rising) { chooseMenu(t); t.consumed = true; continue; }
+    // Parts picker: intercept pinch only outside tutorial (ghost hands must not be consumed here)
+    if (!tut.on && picker.open && rising) { choosePicker(t); t.consumed = true; continue; }
 
     // PINCH (M) and GRAB (K): pick up, move, push/pull, twist, two-hand
     const holding = t.grab || t.assist;
@@ -1132,8 +1239,8 @@ function interact(dt, labels) {
       if (t.thumbHold > 1 && !t.thumbDone && selected) { snapshot(selected, 'Upright'); selected.userData.homing = true; t.thumbDone = true; flash(selected); tutEmit('upright'); }
     } else { t.thumbHold = 0; t.thumbDone = false; }
 
-    // FIST (P): virtual trackball
-    if (settings.trackball && t.gesture === 'fist' && !t.grab) {
+    // FIST (P): virtual trackball — also accepts 'grab' in sets where grab-pick is off
+    if (settings.trackball && (t.gesture === 'fist' || (t.gesture === 'grab' && !settings.grab)) && !t.grab) {
       if (!t.spin) {
         const o = pick(t.palm, 1.7);
         if (free(o)) {
@@ -1483,6 +1590,7 @@ function burstStep(P, A, B, now) {
   const la = poseLog(A, now), lb = poseLog(B, now);
   const changed = (L, from, to) => L[to].start >= L[from].end - 34 && L[to].start - L[from].end < BURST.gapMs && L[from].end - L[from].start >= BURST.holdMs;
   for (const [from, to, v, why] of [['fist', 'open', 1, 'fists burst open'], ['open', 'fist', 0, 'hands closed to fists']]) {
+    if (A.grab || B.grab) continue;   // don't burst while either hand is holding something
     if (burstPose(A.gesture) !== to || burstPose(B.gesture) !== to) continue;
     if (!changed(la, from, to) || !changed(lb, from, to)) continue;
     const at = Math.max(la[to].start, lb[to].start);
@@ -2015,18 +2123,28 @@ function frame() {
   if (renderer.xr.isPresenting) {
     // VR: the headset is the input provider; same pipeline as the webcam from here on
     xrProvider.update(now, dt);
-    interact(dt, LABELS);
-    pairStep(pairs.real, now);
-    for (const l of LABELS) pointerStep(tracks[l], now);
+    if (!tut.playing) {
+      const th = tut.on && !curSteps()[tut.i]?.L;  // single-hand tut step: block two-hand scale
+      if (th) settings.twoHand = false;
+      interact(dt, LABELS);
+      pairStep(pairs.real, now);
+      if (th) settings.twoHand = true;
+      for (const l of LABELS) pointerStep(tracks[l], now);
+    }
   } else if (detecting && landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
     const detDt = lastDetect ? Math.min(0.1, (now - lastDetect) / 1000) : 1 / 30;
     lastDetect = now;
     const res = landmarker.detectForVideo(video, now);
     processResult(res, now, detDt);
-    interact(detDt, LABELS);
-    pairStep(pairs.real, now);
-    for (const l of LABELS) pointerStep(tracks[l], now);
+    if (!tut.playing) {
+      const th = tut.on && !curSteps()[tut.i]?.L;
+      if (th) settings.twoHand = false;
+      interact(detDt, LABELS);
+      pairStep(pairs.real, now);
+      if (th) settings.twoHand = true;
+      for (const l of LABELS) pointerStep(tracks[l], now);
+    }
     fpsCount++;
   }
   updateSim(now);
@@ -2072,6 +2190,9 @@ function frame() {
   updateCut();
   updateExplode(dt);
   updateMenu(now);
+  updatePickerHover(dt, now);
+  updateWristPicker(dt, now);
+  updatePalmReveal(dt, now);
   updateChips();
   drawOverlay();
   drawPip();
@@ -2133,11 +2254,11 @@ const STEPS = [
     R: [{ t: 0, at: [-1.6, -1.2], p: 'open' }, { t: 1.1, at: [0, 0], p: 'open' }, { t: 1.4, at: [0, 0], p: 'grab' },
         { t: 2.5, at: [-1.2, .6], p: 'grab' }, { t: 3, at: [-1.2, .6], p: 'fist' }, { t: 3.7, at: [0, 0], p: 'fist' },
         { t: 4, at: [0, 0], p: 'open' }, { t: 4.8, at: [.9, -1], p: 'open' }] },
-  { key: 'M', title: 'Twist to rotate', dur: 4.8,
-    body: 'While holding, turn your wrist any way you like and the object turns with it, on every axis. Let go mid-twist to send it spinning.',
-    R: [{ t: 0, at: [1, -1], p: 'open' }, { t: 1, at: [0, 0], p: 'open' }, { t: 1.3, at: [0, 0], p: 'pinch' },
-        { t: 2.3, at: [0, 0], p: 'pinch', tw: [0, 1.2, 0] }, { t: 3.2, at: [0, 0], p: 'pinch', tw: [0, 1.2, .9] },
-        { t: 3.8, at: [0, 0], p: 'pinch', tw: [.9, 0, 0] }, { t: 4, at: [0, 0], p: 'open', tw: [.9, 0, 0] },
+  { key: 'K', title: 'Twist to rotate', dur: 4.8,
+    body: 'Close your whole hand around the object (grip), then turn your wrist — the object turns with it on every axis. Release with a spin to send it flying.',
+    R: [{ t: 0, at: [1, -1], p: 'open' }, { t: 1, at: [0, 0], p: 'open' }, { t: 1.3, at: [0, 0], p: 'grab' },
+        { t: 2.3, at: [0, 0], p: 'grab', tw: [0, 1.2, 0] }, { t: 3.2, at: [0, 0], p: 'grab', tw: [0, 1.2, .9] },
+        { t: 3.8, at: [0, 0], p: 'grab', tw: [.9, 0, 0] }, { t: 4, at: [0, 0], p: 'open', tw: [.9, 0, 0] },
         { t: 4.8, at: [.8, -1], p: 'open' }] },
   { key: 'P', title: 'Fist to spin', dur: 4.6,
     body: 'Make a fist over the object and drag, like rolling a trackball. Open your hand and it keeps coasting.',
@@ -2229,10 +2350,10 @@ const movedFrom = (o, b, d) => o.position.distanceTo(b.pos) > d;
 const turnedFrom = (o, b, deg) => o.quaternion.angleTo(b.q) > THREE.MathUtils.degToRad(deg);
 const GOALS = {
   'Poke':                 { hint: 'Poke the cube with your index finger to set it spinning.', ev: ['poke'] },
-  'Pinch to grab':        { hint: 'Pinch the cube and move it somewhere else.', check: (o, b) => b.ev.has('grab:pinch') && movedFrom(o, b, 0.8), done: 'You picked it up and moved it.' },
+  'Pinch to grab':        { hint: 'Pinch the cube and move it somewhere else.', check: (o, b) => b.ev.has('grab:pinch') && movedFrom(o, b, 0.3), done: 'You picked it up and moved it.' },
   'Push and pull':        { hint: 'Pinch the cube, then move your hand toward or away from the screen.', check: (o, b) => b.ev.has('grab:pinch') && Math.abs(o.position.z - b.pos.z) > 1, done: 'You changed its depth.' },
-  'Grab':                 { hint: 'Close your whole hand on the cube and move it.', check: (o, b) => b.ev.has('grab:grip') && movedFrom(o, b, 0.6), done: 'Palm grip works.' },
-  'Twist to rotate':      { hint: 'Pinch the cube and turn your wrist.', check: (o, b) => !!o.userData.grabbedBy && turnedFrom(o, b, 35), done: 'You turned it with your wrist.' },
+  'Grab':                 { hint: 'Close your whole hand on the cube and move it.', check: (o, b) => b.ev.has('grab:grip') && movedFrom(o, b, 0.3), done: 'Palm grip works.' },
+  'Twist to rotate':      { hint: 'Grab the cube (close your fist), then turn your wrist.', ev: ['twist'], done: 'You turned it with your wrist.' },
   'Fist to spin':         { hint: 'Make a fist over the cube and drag to roll it.', check: (o, b) => b.ev.has('trackball') && turnedFrom(o, b, 45), done: 'Trackball spin done.' },
   'Open hand swipe':      { hint: 'Swipe an open hand quickly across the cube.', ev: ['flick'], done: 'Nice flick.' },
   'Thumbs up':            { hint: 'Give a thumbs up and hold it until the cube settles upright.', ev: ['upright'], done: 'It\'s back upright.' },
@@ -2249,12 +2370,50 @@ const GOALS = {
 };
 // Flow per step: the demo plays once, then it's your turn. You get TRY_SECS of trying (the clock starts when
 // your hand appears or you press a gesture key). Not done by then: the demo replays once, then Try again / Skip.
-const TRY_SECS = 15;
+const TRY_SECS = 5;
 const tutGoal = { on: false, base: null, done: false, t: 0, started: false, fails: 0, replay: false };
 function tutEmit(name) { if (tut.on && !tut.playing && tutGoal.base) tutGoal.base.ev.add(name); }
+const CHALLENGE_KEY = 'da9620c2004bdf6604ee0ae1e5b2f17b';
+const WORKER_URL    = 'https://xr-challenge-log.bdccdev.workers.dev';
+const challengeResults = new Map();  // step title → { outcome, failsBefore }
+let challengeActive = false;
+let challengeMode = 'full';   // 'full' | 'mini'
+// Mini mode skips pinch/grab-heavy steps (webcam unreliable)
+// Mini keeps: Grab, Twist to rotate, Pinch to stretch, Burst to explode, Double clap to reset
+const MINI_SKIP = new Set(['Pinch to grab','Push and pull','Two hands',
+  'Poke','Fist to spin','Open hand swipe','Thumbs up',
+  'Crane','Wipe to reset',
+  'Finger gun: lock on','Send it','Summon','Remote grab']);
+
+const tutFailLog = [];
+function tutLogEntry(outcome) {
+  const step = curSteps()[tut.i], g = GOALS[step.title];
+  const entry = {
+    ts: new Date().toISOString(), outcome,
+    step: step.title, set: step.set || settings.set, key: step.key || '(camera)',
+    failCount: tutGoal.fails,
+    elapsed: tutGoal.t.toFixed(1) + 's',
+    eventsEmitted: tutGoal.base ? [...tutGoal.base.ev] : [],
+    hint: g?.hint || '',
+  };
+  tutFailLog.push(entry);
+  console.log(`[tut:${outcome}]`, entry.step, '| events:', entry.eventsEmitted.join(', ') || 'none', '| t:', entry.elapsed, '| fails:', entry.failCount);
+  const btn = $('#tutLogBtn'); if (btn) btn.hidden = false;
+  // challenge recording: first pass only; don't overwrite a pass with a later skip/fail
+  if (challengeActive) {
+    const prev = challengeResults.get(entry.step);
+    if (!prev || (prev.outcome !== 'pass' && outcome === 'pass'))
+      challengeResults.set(entry.step, { outcome, failsBefore: entry.failCount });
+  }
+}
+function tutDownloadLog() {
+  const blob = new Blob([JSON.stringify(tutFailLog, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `tut-log-${Date.now()}.json`; a.click(); URL.revokeObjectURL(a.href);
+}
 function tutStartGoal() {
   const step = curSteps()[tut.i], g = GOALS[step.title], o = objects[0];
-  tutGoal.on = !!g && !!o; tutGoal.done = false; tutGoal.t = 0; tutGoal.started = false; tutGoal.prompt = false;
+  tutGoal.on = !!g && !!o; tutGoal.done = false; tutGoal.t = 0; tutGoal.started = false; tutGoal.prompt = false; tutGoal.handLostT = 0; tutGoal.navCooldown = 0;
   document.body.classList.add('tut-turn');
   // Two-hand steps can't be done with the mouse: say so and offer Skip straight away.
   const needsCam = !stream && !step.key;
@@ -2271,16 +2430,22 @@ function tutCheckGoal() {
   const ok = (g.ev && g.ev.some(e => b.ev.has(e))) || (g.check && o && g.check(o, b));
   if (!ok) return;
   tutGoal.done = true;
-  const list = curSteps(), last = tut.i === list.length - 1, ids = Object.keys(SETS), nextSet = ids[ids.indexOf(settings.set) + 1];
+  tutGoal.navCooldown = 2.0;   // 2s before zone nav / thumbs-up can advance
+  tutLogEntry('pass');
+  const list = curSteps(), last = tut.i === list.length - 1, ids = Object.keys(SETS);
+  const nextSet = ids.slice(ids.indexOf(settings.set) + 1).find(id => stepsForSet(id).length > 0) ?? null;
+  const nextLabel = !last ? list[tut.i + 1].title : nextSet ? `${SETS[nextSet].name} set` : null;
   $('#tutDoneText').textContent = g.done || `You did the ${step.title.toLowerCase()} gesture.`;
-  $('#tutDoneNext').textContent = (!last ? `Next: ${list[tut.i + 1].title} →` : nextSet ? `Next set: ${SETS[nextSet].name} →` : 'Finish tutorial') + '  ⏎';
+  $('#tutDoneNext').textContent = (nextLabel ? `Next: ${nextLabel} →` : 'Finish tutorial') + '  ⏎';
   $('#tutDoneNext').title = 'Enter';
   $('#tutGoal').hidden = true; $('#tutDone').hidden = false; $('#tutRetry').hidden = true;
-  showToast('Great job!', 1200, 'reset');
+  showToast(nextLabel ? `Great job! · Next: ${nextLabel}` : 'Great job! · Tutorial complete', 2200, 'reset');
   tutGoal.arm = false; tutGoal.hold = 0;
   $('#tutDoneText').textContent += stream ? ' Move on: drag it into Next, hover Next, or thumbs up.' : ' Move on: drag it into Next, or click Next.';
 }
-const curSteps = () => STEPS.filter(s => s.set === settings.set);
+const stepsForSet = set => STEPS.filter(s => s.set === set &&
+  !(challengeActive && challengeMode === 'mini' && MINI_SKIP.has(s.title)));
+const curSteps = () => stepsForSet(settings.set);
 function tutSetTabs() {
   document.querySelectorAll('[data-tset]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tset === settings.set)));
 }
@@ -2444,33 +2609,43 @@ function tutShowPrompt() {
 const TARGET_R = 66, TARGET_DWELL = 0.9;
 let tutTargetEls = {};
 function tutTargetSpecs() {
-  const right = W - 150, left = 150, y = H * 0.42;
-  if (!$('#tutDone').hidden) return [{ id: 'next', label: 'Next', sub: 'hover · drag here', x: right, y, c: 'var(--hand)', act: () => $('#tutDoneNext').click(), drop: true }];
+  if (!$('#tutDone').hidden) return [
+    { id: 'next',  label: '→ Next',  sub: 'move hand right', zone: 'right', c: 'var(--hand)', act: () => $('#tutDoneNext').click(), drop: true },
+    { id: 'again', label: '↺ Again', sub: 'move hand left',  zone: 'left',  c: 'var(--grab)', act: () => $('#tutDoneAgain').click() }];
   if (tutGoal.prompt) return [
-    { id: 'again', label: 'Again', sub: 'hover to retry', x: left, y, c: 'var(--grab)', act: () => $('#tutRetryAgain').click() },
-    { id: 'skip', label: 'Skip', sub: 'hover to skip', x: right, y, c: 'var(--muted)', act: () => $('#tutRetrySkip').click() }];
+    { id: 'again', label: '↺ Again', sub: 'move hand left',  zone: 'left',  c: 'var(--grab)', act: () => $('#tutRetryAgain').click() },
+    { id: 'skip',  label: 'Skip →',  sub: 'move hand right', zone: 'right', c: 'var(--muted)', act: () => $('#tutRetrySkip').click() }];
   return [];
 }
 function updateTutTargets(dt) {
-  const specs = tut.on ? tutTargetSpecs() : [], box = $('#tutTargets'), ids = new Set(specs.map(t => t.id));
+  const specs = tut.on ? tutTargetSpecs() : [], box = $('#tutTargets'), ids = new Set(specs.map(s => s.id));
   for (const id of Object.keys(tutTargetEls)) if (!ids.has(id)) { tutTargetEls[id].el.remove(); delete tutTargetEls[id]; }
   const hands = realHands(), obj = objects[0], oc = obj ? screenOf(obj) : null;
   for (const sp of specs) {
     let T = tutTargetEls[sp.id];
     if (!T) {
-      const el = document.createElement('div'); el.className = 'tut-target';
-      el.innerHTML = `<div><b>${sp.label}</b><small>${sp.sub}</small></div>`;
+      const el = document.createElement('div');
+      el.className = sp.zone ? `tut-zone ${sp.zone}` : 'tut-target';
+      el.innerHTML = sp.zone
+        ? `<span class="zone-label">${sp.label}</span><span class="zone-sub">${sp.sub}</span><div class="zone-ring"></div>`
+        : `<div><b>${sp.label}</b><small>${sp.sub}</small></div>`;
       el.addEventListener('click', () => sp.act());
       box.append(el); T = tutTargetEls[sp.id] = { el, dwell: 0 };
     }
-    T.el.style.left = `${sp.x}px`; T.el.style.top = `${sp.y}px`; T.el.style.setProperty('--c', sp.c);
-    const near = p => p && Math.hypot(p.x - sp.x, p.y - sp.y) < TARGET_R;
-    const over = hands.some(t => near(t.palm) || near(t.tip) || near(t.pinchPt));
-    const dropped = sp.drop && oc && near(oc);
+    T.el.style.setProperty('--c', sp.c);
+    if (!sp.zone) { T.el.style.left = `${sp.x}px`; T.el.style.top = `${sp.y}px`; }
+    // Zone: any hand in that half of screen. Circle: proximity.
+    const inZone = sp.zone
+      ? p => p && (sp.zone === 'right' ? p.x > W / 2 : p.x < W / 2)
+      : p => p && Math.hypot(p.x - sp.x, p.y - sp.y) < TARGET_R;
+    const over = hands.some(t => inZone(t.palm) || inZone(t.tip) || inZone(t.pinchPt));
+    const dropped = sp.drop && oc && (sp.zone ? inZone(oc) : Math.hypot(oc.x - sp.x, oc.y - sp.y) < TARGET_R);
     T.dwell = over ? T.dwell + dt : 0;
     T.el.classList.toggle('hot', over || dropped);
-    T.el.style.setProperty('--p', Math.min(1, T.dwell / TARGET_DWELL));
-    if (dropped || T.dwell >= TARGET_DWELL) { T.dwell = 0; sp.act(); }
+    // Zones: dwell 0.5s (short but deliberate). Circles: TARGET_DWELL.
+    const thresh = sp.zone ? 0.5 : TARGET_DWELL;
+    T.el.style.setProperty('--p', Math.min(1, T.dwell / thresh));
+    if (dropped || T.dwell >= thresh) { T.dwell = 0; sp.act(); }
   }
 }
 // Demo takeover: a real hand that appears, or changes pose, and stays that way for 0.3 s means you've started.
@@ -2526,7 +2701,17 @@ function updateTutorial(now, dt) {
     tut.time += dt;
     // Demo plays once. If your hand starts moving first, it hands over straight away.
     if (tut.time > 0.5 && tutWatchTakeover(dt)) { setTurn(false); return; }
-    if (tut.time > step.dur + .9) { if (tutGoal.replay) tutShowPrompt(); else setTurn(false); return; }
+    if (tut.time > step.dur + .9) {
+      if (tutGoal.replay) { tutShowPrompt(); return; }
+      // Loop demo until a real hand (or sim key) is detected, then hand over.
+      if (realHands().length === 0 && !simKey) {
+        // Reset cube to home before each loop so drift doesn't accumulate.
+        resetScene(); const c = objects[0]; if (c) { c.userData.angVel.set(0,0,0); }
+        loseTrack(tracks.GL); loseTrack(tracks.GR);
+        tut.time = 0; return;
+      }
+      setTurn(false); return;
+    }
     driveGhost(tracks.GR, step.R, 'R', dt);
     driveGhost(tracks.GL, step.L, 'L', dt);
     interact(dt, ['GL', 'GR']);
@@ -2536,9 +2721,22 @@ function updateTutorial(now, dt) {
   if (!tut.playing && tutGoal.on && !tutGoal.done) {
     // The try clock runs once a hand is in view (or a gesture key is held), so you aren't timed while getting ready.
     if (!tutGoal.started) tutGoal.started = !!simKey || tracks.Left.visible || tracks.Right.visible;
+    // If hand leaves frame after being seen, replay after 2s grace (ignore momentary drops).
+    if (tutGoal.started && stream && !simKey) {
+      const handVisible = realHands().length > 0;
+      tutGoal.handLostT = handVisible ? 0 : (tutGoal.handLostT || 0) + dt;
+      if (tutGoal.handLostT >= 2.0) {
+        tutGoal.handLostT = 0;
+        showToast('Hand lost — watch once more', 1200);
+        tutGo(tut.i); tut.playing = true; $('#tutTurn').textContent = 'Your turn';
+        $('#tutGoal').hidden = false; $('#tutGoal').textContent = 'Watch once more';
+        return;
+      }
+    }
     if (tutGoal.started) tutGoal.t += dt;
     if (tutGoal.t >= TRY_SECS && !(!stream && !step.key)) {
       tutGoal.fails++;
+      tutLogEntry('fail');
       showToast('Not quite · watch it once more', 1600);
       $('#tutRetry').hidden = true;
       tutGo(tut.i); tutGoal.replay = true; tut.playing = true; $('#tutTurn').textContent = 'Your turn';
@@ -2546,6 +2744,7 @@ function updateTutorial(now, dt) {
       return;
     }
   }
+  if (tutGoal.navCooldown > 0) { tutGoal.navCooldown -= dt; return; }
   if (!$('#tutDone').hidden || tutGoal.prompt) tutGestureNav(dt);
   updateTutTargets(dt);
   $('#tutBar').style.width = `${tut.playing ? Math.min(100, tut.time / step.dur * 100) : tutGoal.on && !tutGoal.done ? Math.min(100, tutGoal.t / TRY_SECS * 100) : 0}%`;
@@ -2901,10 +3100,169 @@ function updateMenu(now) {
   if (now - menu.lastHoverT > 5000) closeMenu();   // 5 s with nothing chosen
 }
 
+/* ---------- parts picker (wrist tap + palm flip) ---------- */
+const wristPickerEl = $('#wristPickerBtn');
+const palmRevealEl  = $('#palmRevealBtn');
+const partsPickerEl = $('#partsPicker');
+const picker = { open: false, lastHoverT: 0, hover: -1, hoverDwell: 0, palmOpen: false };
+// Wrist dwell per cross-pair: LR = left wrist / right tip, RL = right wrist / left tip
+const wristDwell = { LR: { t: 0, hot: false }, RL: { t: 0, hot: false } };
+// Per-hand palm-flip reveal state
+const palmRevState = {
+  Left:  { wasUp: false, visible: false, hideAt: 0 },
+  Right: { wasUp: false, visible: false, hideAt: 0 },
+};
+let palmRevHand = null; // which hand is showing the reveal button
+
+function openPartsPicker(at) {
+  const g = objects.find(o => o.userData.complex);
+  const parts = g?.userData.parts || [];
+  if (!parts.length) { showToast('No grouped parts — load a model with organelle groups', 1800); return; }
+  const nodes = [];
+  const hdr = document.createElement('h3'); hdr.textContent = 'Parts'; nodes.push(hdr);
+  if (focusedPart >= 0) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = '✕ Clear focus'; b.className = 'clear-btn';
+    b.addEventListener('click', () => { exitPartsFocus(); closePartsPicker(); });
+    nodes.push(b);
+  }
+  parts.forEach((p, i) => {
+    const b = document.createElement('button'); b.type = 'button';
+    b.textContent = p.name; b.dataset.i = i;
+    if (i === focusedPart) b.classList.add('active');
+    b.addEventListener('click', () => {
+      if (focusedPart === i) exitPartsFocus(); else focusPart(i);
+      if (!picker.palmOpen) closePartsPicker();
+      else { pickerBtns().forEach((b2, j) => b2.classList.toggle('active', j === focusedPart)); }
+    });
+    nodes.push(b);
+  });
+  partsPickerEl.replaceChildren(...nodes);
+  partsPickerEl.hidden = false;
+  const r = partsPickerEl.getBoundingClientRect();
+  // Position on the side of the screen with fewest hands, well away from the trigger point.
+  // Average all visible hand palm X positions to find the "hand zone" centre.
+  const palmXs = Object.values(tracks).filter(t => t.visible && t.palm && t.source !== 'ghost').map(t => t.palm.x);
+  const handCx = palmXs.length ? palmXs.reduce((s, x) => s + x, 0) / palmXs.length : at.x;
+  const px = handCx < W / 2 ? W - r.width - 16 : 16;   // opposite side from hands
+  const py = clamp(at.y - r.height / 2, 16, H - r.height - 16);
+  partsPickerEl.style.left = `${px}px`;
+  partsPickerEl.style.top  = `${py}px`;
+  picker.open = true; picker.lastHoverT = performance.now(); picker.hover = -1;
+}
+function closePartsPicker() { picker.open = false; partsPickerEl.hidden = true; picker.hover = -1; }
+function pickerBtns() { return [...partsPickerEl.querySelectorAll('button')]; }
+function pickerIndexAt(p) {
+  return pickerBtns().findIndex(b => { const r = b.getBoundingClientRect(); return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom; });
+}
+function choosePicker(t) {
+  const i = pickerIndexAt(t.pinchPt);
+  if (i >= 0) pickerBtns()[i].click(); else closePartsPicker();
+}
+const PICKER_HOVER_DWELL = 0.3;  // seconds to dwell on a row to select it
+function updatePickerHover(dt, now) {
+  if (!picker.open) return;
+  // Use index fingertip for hover (more precise than pinch point for browsing)
+  let hover = -1;
+  for (const t of Object.values(tracks)) {
+    if (!t.visible || t.source === 'ghost') continue;
+    const probe = t.pts ? t.pts[8] : t.pinchPt;  // index tip if available
+    const i = pickerIndexAt(probe);
+    if (i >= 0) { hover = i; break; }
+  }
+  if (hover !== picker.hover) {
+    picker.hover = hover; picker.lastHoverT = now; picker.hoverDwell = 0;
+    pickerBtns().forEach((b, i) => { b.classList.toggle('hot', i === hover); b.style.removeProperty('--p'); });
+  } else if (hover >= 0) {
+    picker.hoverDwell += dt;
+    // Show dwell progress on the hovered button via CSS var
+    const btns = pickerBtns();
+    if (btns[hover]) btns[hover].style.setProperty('--p', Math.min(1, picker.hoverDwell / PICKER_HOVER_DWELL));
+    if (picker.hoverDwell >= PICKER_HOVER_DWELL) {
+      picker.hoverDwell = 0;
+      btns[hover]?.click();  // triggers focusPart or exitPartsFocus; picker stays open (no closePartsPicker in click handler)
+    }
+  }
+  if (picker.palmOpen) return;  // palm-open pickers stay until palm flips back down
+  if (now - picker.lastHoverT > 8000) closePartsPicker();
+}
+
+// Wrist button: show on each hand; the OTHER hand's index tip dwell 0.5s opens picker.
+// Pairs: LR = left wrist watched by right tip, RL = right wrist watched by left tip.
+const WRIST_PAIRS = [['Left', 'Right', 'LR'], ['Right', 'Left', 'RL']];
+function updateWristPicker(dt, now) {
+  if (!settings.picker || tut.on || menu.open || picker.open) {
+    wristPickerEl.hidden = true;
+    for (const [,, key] of WRIST_PAIRS) { wristDwell[key].t = 0; wristDwell[key].hot = false; }
+    return;
+  }
+  // Find the pair with the closest approach; show button on that wrist.
+  let bestDist = Infinity, bestWp = null, bestKey = null;
+  for (const [wristLbl, tipLbl, key] of WRIST_PAIRS) {
+    const wt = tracks[wristLbl], tt = tracks[tipLbl];
+    if (!wt.visible || !wt.pts || wt.source === 'ghost') { wristDwell[key].t = 0; wristDwell[key].hot = false; continue; }
+    if (!tt.visible || !tt.pts || tt.source === 'ghost') { wristDwell[key].t = 0; wristDwell[key].hot = false; continue; }
+    const dist = Math.hypot(tt.pts[8].x - wt.pts[0].x, tt.pts[8].y - wt.pts[0].y);
+    if (dist < bestDist) { bestDist = dist; bestWp = wt.pts[0]; bestKey = key; }
+  }
+
+  // Reset dwell on the non-active pair
+  for (const [,, key] of WRIST_PAIRS) { if (key !== bestKey) { wristDwell[key].t = 0; wristDwell[key].hot = false; } }
+
+  if (!bestWp) { wristPickerEl.hidden = true; return; }
+  wristPickerEl.hidden = false;
+  wristPickerEl.style.left = `${Math.round(bestWp.x)}px`;
+  wristPickerEl.style.top  = `${Math.round(bestWp.y)}px`;
+
+  const hot = bestDist < 50;
+  const dwell = wristDwell[bestKey];
+  if (hot !== dwell.hot) { dwell.hot = hot; wristPickerEl.classList.toggle('hot', hot); }
+  if (hot) {
+    dwell.t += dt;
+    if (dwell.t >= 0.5) { dwell.t = 0; openPartsPicker(bestWp); }
+  } else { dwell.t = 0; }
+}
+
+// Palm flip: palm-down → palm-up opens parts picker directly. Picker stays open while palm is up.
+// Palm flips back down → picker closes after grace period.
+function updatePalmReveal(dt, now) {
+  palmRevealEl.hidden = true;   // pill button no longer used; kept in DOM but always hidden
+  if (!settings.picker || tut.on) return;
+  for (const label of ['Left', 'Right']) {
+    const t = tracks[label], state = palmRevState[label];
+    if (!t.visible || !t.palmN || t.source === 'ghost') {
+      state.wasUp = false;
+      if (state.visible) {
+        state.visible = false;
+        if (palmRevHand === label) { palmRevHand = null; if (picker.palmOpen) { picker.palmOpen = false; closePartsPicker(); } }
+      }
+      continue;
+    }
+    const isUp = t.palmN.y > 0.45;
+    // Rising edge: palm just flipped up → open picker
+    if (isUp && !state.wasUp && !menu.open) {
+      state.visible = true; palmRevHand = label;
+      if (!picker.open) { picker.palmOpen = true; openPartsPicker(t.palm); }
+      else { picker.palmOpen = true; }   // picker was open from wrist btn; adopt it as palm-open
+    }
+    // Falling edge: palm went back down → schedule close
+    if (!isUp && state.wasUp) { state.hideAt = now + 800; }
+    // Grace expired: close picker
+    if (!isUp && state.visible && now > state.hideAt) {
+      state.visible = false;
+      if (palmRevHand === label) {
+        palmRevHand = null;
+        if (picker.palmOpen) { picker.palmOpen = false; closePartsPicker(); }
+      }
+    }
+    state.wasUp = isUp;
+  }
+}
+
 /* ---------- controls ---------- */
 const btnCam = $('#btnCam');
 for (const k of ['poke', 'grab', 'grip', 'thumb', 'flick', 'trackball', 'depth', 'twist', 'twoHand',
-  'crane', 'squeeze', 'clap', 'dust', 'burst', 'pointer', 'menu']) {
+  'crane', 'squeeze', 'clap', 'dust', 'burst', 'pointer', 'menu', 'picker']) {
   const el = $('#g-' + k);
   el.addEventListener('change', () => {
     settings[k] = el.checked;
@@ -3100,14 +3458,25 @@ $('#tutMore').addEventListener('click', () => {
 });
 $('#tutDoneAgain').addEventListener('click', () => { tutGo(tut.i); setTurn(false); });
 $('#tutRetryAgain').addEventListener('click', () => { tutGo(tut.i); setTurn(false); });
-$('#tutRetrySkip').addEventListener('click', () => $('#tutDoneNext').click());
+$('#tutRetrySkip').addEventListener('click', () => {
+  // In challenge mode, record the skipped step before advancing
+  if (challengeActive) {
+    const step = curSteps()[tut.i];
+    if (!challengeResults.has(step.title))
+      challengeResults.set(step.title, { outcome: 'skip', failsBefore: tutGoal.fails });
+  }
+  $('#tutDoneNext').click();
+});
 $('#tutDoneNext').addEventListener('click', () => {
-  const list = curSteps(), ids = Object.keys(SETS), nextSet = ids[ids.indexOf(settings.set) + 1];
+  const list = curSteps(), ids = Object.keys(SETS);
+  const nextSet = ids.slice(ids.indexOf(settings.set) + 1).find(id => stepsForSet(id).length > 0) ?? null;
   if (tut.i < list.length - 1) { tutGo(tut.i + 1); setTurn(true); }
   else if (nextSet) applySet(nextSet);        // in the tutorial, switching set restarts at its first step
+  else if (challengeActive) { challengeComplete(); }
   else { tutExit(); showToast('Tutorial complete · you know every gesture', 2400, 'reset'); }
 });
 $('#tutExit').addEventListener('click', tutExit);
+$('#tutLogBtn').addEventListener('click', tutDownloadLog);
 
 addEventListener('keydown', e => {
   if (e.target.closest('input')) return;
@@ -3120,6 +3489,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.key === ' ' && !tut.on && !e.repeat) { e.preventDefault(); menu.open ? closeMenu() : openMenu(mouse); return; }
+  if (e.key === 'Escape' && picker.open) { closePartsPicker(); return; }
   if (e.key === 'Escape' && focusedPart >= 0) { exitPartsFocus(); return; }
   if (e.key === 'Escape' && menu.open) { closeMenu(); return; }
   if (tut.on) {
@@ -3185,6 +3555,120 @@ function describeModel(gltf, name) {
   }
 }
 
+/* ---------- challenge mode ---------- */
+// Ordered list of step titles for the challenge score card.
+const CHALLENGE_STEPS_FULL = ['grab', 'spin', 'navigate', 'pointer']
+  .flatMap(s => STEPS.filter(st => st.set === s).map(st => st.title));
+const CHALLENGE_STEPS_MINI = ['grab', 'navigate']
+  .flatMap(s => STEPS.filter(st => st.set === s && !MINI_SKIP.has(st.title)).map(st => st.title));
+const challengeSteps = () => challengeMode === 'mini' ? CHALLENGE_STEPS_MINI : CHALLENGE_STEPS_FULL;
+
+function stepEmoji(title) {
+  const r = challengeResults.get(title);
+  if (!r || r.outcome === 'skip') return '⬜';
+  if (r.outcome === 'pass' && r.failsBefore === 0) return '🟢';
+  if (r.outcome === 'pass' && r.failsBefore === 1) return '🟡';
+  if (r.outcome === 'pass') return '🟠';
+  return '🔴';
+}
+
+function challengeBadge(completed, firstTry) {
+  if (challengeMode === 'mini') {
+    // 5 steps: Grab, Twist, Resize, Explode, Reset
+    if (completed >= 5 && firstTry >= 4) return { emoji: '🥇', title: 'XR Ninja' };
+    if (completed >= 4)                  return { emoji: '🥈', title: 'XR Adept' };
+    if (completed >= 3)                  return { emoji: '🥉', title: 'XR Apprentice' };
+    if (completed >= 2)                  return { emoji: '🎯', title: 'XR Explorer' };
+    return { emoji: '🌱', title: 'XR Rookie' };
+  }
+  if (completed >= 16 && firstTry >= 12) return { emoji: '🥇', title: 'XR Ninja' };
+  if (completed >= 14)                   return { emoji: '🥈', title: 'XR Adept' };
+  if (completed >= 10)                   return { emoji: '🥉', title: 'XR Apprentice' };
+  if (completed >= 6)                    return { emoji: '🎯', title: 'XR Explorer' };
+  return { emoji: '🌱', title: 'XR Rookie' };
+}
+
+function buildShareText() {
+  const emojis = challengeSteps().map(stepEmoji).join('');
+  const completed = [...challengeResults.values()].filter(r => r.outcome === 'pass').length;
+  const firstTry  = [...challengeResults.values()].filter(r => r.outcome === 'pass' && r.failsBefore === 0).length;
+  const badge = challengeBadge(completed, firstTry);
+  const base = location.origin + location.pathname.replace(/[^/]*$/, '');
+  const challengeUrl = base + 'cell-xr.html?challenge';
+  const modelUrl     = base + 'cell-xr.html?model=models/animal-cell.web.glb';
+  return [
+    `XR Challenge 🤚`,
+    emojis,
+    `${badge.emoji} ${badge.title} — ${completed}/18 · ${firstTry} first try`,
+    `Learning cell biology with hand tracking 🔬`,
+    `Try it → ${challengeUrl}`,
+    `See the 3D cell model → ${modelUrl}`,
+    `#XRChallenge #EdTech #WebXR`,
+  ].join('\n');
+}
+
+function submitChallenge(payload) {
+  if (WORKER_URL.includes('YOUR_SUBDOMAIN')) {
+    $('#crSubmitStatus').textContent = 'Worker URL not configured — result not saved online.';
+    return;
+  }
+  $('#crSubmitStatus').textContent = 'Saving result…';
+  fetch(WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Challenge-Key': CHALLENGE_KEY },
+    body: JSON.stringify({ ...payload, ua: navigator.userAgent, ts: new Date().toISOString() }),
+  })
+  .then(r => { $('#crSubmitStatus').textContent = r.ok ? '✓ Result saved' : 'Could not save (offline?)'; })
+  .catch(() => { $('#crSubmitStatus').textContent = 'Could not save (offline?)'; });
+}
+
+function challengeStart() {
+  challengeActive = true;
+  challengeResults.clear();
+  $('#challengeGate').hidden = true;
+  $('#gate').hidden = true;
+  // Lock set buttons during challenge (all 4 sets run in order automatically)
+  document.querySelectorAll('[data-set],[data-tset]').forEach(b => b.setAttribute('disabled', ''));
+  if (!stream) startCamera();
+  // applySet before tutStart — tutStart calls tutGo(0) which captures tutGoal.base;
+  // calling applySet after would re-call tutGo(0) and corrupt that base.
+  const startSet = 'grab';   // mini starts at grab too (Grab + Twist to rotate)
+  applySet(startSet, false);
+  tutStart();
+}
+
+function challengeComplete() {
+  challengeActive = false;
+  // Re-enable set buttons
+  document.querySelectorAll('[data-set],[data-tset]').forEach(b => b.removeAttribute('disabled'));
+  tutExit();
+  const completed = [...challengeResults.values()].filter(r => r.outcome === 'pass').length;
+  const firstTry  = [...challengeResults.values()].filter(r => r.outcome === 'pass' && r.failsBefore === 0).length;
+  const badge = challengeBadge(completed, firstTry);
+  $('#crBadge').textContent = badge.emoji;
+  $('#crTitle').textContent = badge.title;
+  const total = challengeSteps().length;
+  $('#crStats').textContent = `${completed}/${total} gestures · ${firstTry} first try`;
+  const text = buildShareText();
+  $('#crShare').value = text;
+  if (navigator.share) $('#crNative').hidden = false;
+  $('#challengeResult').hidden = false;
+  submitChallenge({ badge: badge.title, completed, firstTry, log: tutFailLog,
+                    platform: navigator.xr ? 'web-xr' : 'web-mediapipe',
+                    mode: challengeMode });
+  try { localStorage.setItem('xr-challenge-last', JSON.stringify({ ts: Date.now(), badge: badge.title, text })); } catch {}
+}
+
+$('#btnChallenge').addEventListener('click', challengeStart);
+$('#btnChallengeModel').addEventListener('click', () => { location.href = '?model=models/animal-cell.web.glb'; });
+$('#crCopy').addEventListener('click', () => {
+  navigator.clipboard.writeText($('#crShare').value).then(() => {
+    const b = $('#crCopy'); b.textContent = 'Copied!'; setTimeout(() => { b.textContent = 'Copy result'; }, 2000);
+  });
+});
+$('#crNative').addEventListener('click', () => { navigator.share({ title: 'XR Challenge', text: $('#crShare').value }); });
+$('#crModel').addEventListener('click', () => { location.href = '?model=models/animal-cell.web.glb'; });
+
 /* ---------- boot ---------- */
 try { await document.fonts.load('600 76px "IBM Plex Mono"'); } catch {}
 xrProvider.init();
@@ -3195,6 +3679,18 @@ applySet('grab', false);
 // ?model=models/cell.glb loads a model on start when the page is served from your Web/ folder
 const modelParam = new URLSearchParams(location.search).get('model');
 if (modelParam) { $('#gateModel').hidden = false; loadModelUrl(modelParam); }
+// ?challenge or ?challenge=mini activates the challenge game mode
+const challengeParam = new URLSearchParams(location.search).get('challenge');
+if (challengeParam !== null) {
+  if (challengeParam === 'mini') {
+    challengeMode = 'mini';
+    $('#challengeGateTitle').textContent = 'XR Challenge — Mini 🤚';
+    document.querySelector('#challengeGate p').textContent =
+      'Complete 11 gestures across 3 sets (no pinch or palm grab). Works well with a webcam.';
+  }
+  $('#gate').hidden = true;
+  $('#challengeGate').hidden = false;
+}
 btnCam.textContent = 'Start camera';
 renderer.setAnimationLoop(frame);
 </script>
