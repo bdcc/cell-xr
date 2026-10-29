@@ -962,8 +962,6 @@ function classify(t, dt, fresh) {
   const unit = d(0, 9) || 1;
   t.pinchRatio = d(4, 8) / unit;
   const indexOut = d(8, 0) > d(5, 0) * 1.1; // separates a pinch from a fist with the thumb tucked over the index
-  if (!t.pinching && t.pinchRatio < 0.33 && indexOut) t.pinching = true;
-  else if (t.pinching && t.pinchRatio > 0.5) t.pinching = false;
 
   // The six OpenXR hand poses: Poke, Pinch, Grab, Thumb, Open, Fist.
   const fingers = [[8, 6, 5], [12, 10, 9], [16, 14, 13], [20, 18, 17]]; // tip, pip, mcp
@@ -971,6 +969,10 @@ function classify(t, dt, fresh) {
   const curled = fingers.map(([tip, pip]) => d(tip, 0) < d(pip, 0));
   t.curl = fingers.reduce((a, [tip, , mcp]) => a + d(tip, 0) / d(mcp, 0), 0) / 4; // ~1.8 open · ~1.2 grip · <1.05 fist
   const thumbGap = Math.min(d(4, 6), d(4, 10)) / unit;  // thumb tucked over the fingers (fist) vs opposed (grab)
+  // Suppress pinch onset during full grip so grab and pinch don't conflict
+  const fullGrip = !ext.some(Boolean) && t.curl < 1.5;
+  if (!t.pinching && t.pinchRatio < 0.33 && indexOut && !fullGrip) t.pinching = true;
+  else if (t.pinching && (t.pinchRatio > 0.5 || fullGrip)) t.pinching = false;
   // Thumbs up / down: a straight thumb (base -> tip nearly as long as its two segments) standing clear of the
   // index knuckle, pointing up or down. Uses 3D landmarks, so it works with the hand side-on to the camera,
   // which is how most people hold a thumbs-up. (y points down in both MediaPipe spaces.)
@@ -2352,7 +2354,7 @@ const GOALS = {
   'Poke':                 { hint: 'Poke the cube with your index finger to set it spinning.', ev: ['poke'] },
   'Pinch to grab':        { hint: 'Pinch the cube and move it somewhere else.', check: (o, b) => b.ev.has('grab:pinch') && movedFrom(o, b, 0.3), done: 'You picked it up and moved it.' },
   'Push and pull':        { hint: 'Pinch the cube, then move your hand toward or away from the screen.', check: (o, b) => b.ev.has('grab:pinch') && Math.abs(o.position.z - b.pos.z) > 1, done: 'You changed its depth.' },
-  'Grab':                 { hint: 'Close your whole hand on the cube and move it (or resize it).', check: (o, b) => b.ev.has('grab:grip') && (movedFrom(o, b, 0.3) || Math.abs(o.scale.x / b.s - 1) > 0.15), done: 'Palm grip works.' },
+  'Grab':                 { hint: 'Close your whole hand on the cube and move it (or resize it).', check: (o, b) => (b.ev.has('grab:grip') || b.ev.has('grab:pinch')) && (movedFrom(o, b, 0.3) || Math.abs(o.scale.x / b.s - 1) > 0.15), done: 'You grabbed it.' },
   'Twist to rotate':      { hint: 'Grab the cube (close your fist), then turn your wrist.', ev: ['twist'], done: 'You turned it with your wrist.' },
   'Fist to spin':         { hint: 'Make a fist over the cube and drag to roll it.', check: (o, b) => b.ev.has('trackball') && turnedFrom(o, b, 45), done: 'Trackball spin done.' },
   'Open hand swipe':      { hint: 'Swipe an open hand quickly across the cube.', ev: ['flick'], done: 'Nice flick.' },
