@@ -1,7 +1,7 @@
-Built: 2026-10-29 20:12:50 UTC
+Built: 2026-10-29 20:20:54 UTC
 
 Source checksums:
-427d98b14cecbd1928c271e0517039afb7e8e0c6  /Users/bendavis/dev/learning-unity/VR_LAB_Hands/Web/grasp-lab.html
+4e5889b276805afd021c059df9b6af52dd097f99  /Users/bendavis/dev/learning-unity/VR_LAB_Hands/Web/grasp-lab.html
 3b03ab5b951bbae72127f87496f9eadffd086b50  /Users/bendavis/dev/learning-unity/VR_LAB_Hands/Web/annotation-helper.html
 e776ac664776d96be74704402082d9d7503fd6dc  /Users/bendavis/dev/learning-unity/VR_LAB_Hands/Web/organelle-prompts.html
 c767a497c9f81b1ea3a909dba32c5348e9328910  /Users/bendavis/dev/learning-unity/VR_LAB_Hands/Web/parallax-window.html

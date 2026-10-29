@@ -1085,6 +1085,10 @@ function updateGrab(t, dt) {
       if (t.source === 'webcam') rv = AXES.z.clone().multiplyScalar(rv.z); // roll-only on webcam
       else rv = lockVec(rv);
       o.quaternion.slerp(rotVecToQuat(rv).multiply(g.q0), 0.6);
+    } else if (settings.twist && g.mode === 'grip') {
+      // Fallback orbital rotation: hand movement while gripping spins the object (webcam with no wrist orient).
+      const rv = dragRot(t.vel.x * dt, t.vel.y * dt, 0.008 * settings.sens);
+      o.quaternion.multiplyQuaternions(rotVecToQuat(rv), o.quaternion);
     }
   }
   const step = quatToRotVec(o.quaternion.clone().multiply(g.prevQ.clone().invert())).divideScalar(Math.max(dt, 1 / 120));
