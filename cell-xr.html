@@ -969,8 +969,9 @@ function classify(t, dt, fresh) {
   const curled = fingers.map(([tip, pip]) => d(tip, 0) < d(pip, 0));
   t.curl = fingers.reduce((a, [tip, , mcp]) => a + d(tip, 0) / d(mcp, 0), 0) / 4; // ~1.8 open · ~1.2 grip · <1.05 fist
   const thumbGap = Math.min(d(4, 6), d(4, 10)) / unit;  // thumb tucked over the fingers (fist) vs opposed (grab)
-  // Suppress pinch onset during full grip so grab and pinch don't conflict
-  const fullGrip = !ext.some(Boolean) && t.curl < 1.5;
+  // Suppress pinch onset during full grip so grab and pinch don't conflict.
+  // Only when 3D world landmarks are available; 2D curl thresholds are unreliable.
+  const fullGrip = !!Wl && !ext.some(Boolean) && t.curl < 1.5;
   if (!t.pinching && t.pinchRatio < 0.33 && indexOut && !fullGrip) t.pinching = true;
   else if (t.pinching && (t.pinchRatio > 0.5 || fullGrip)) t.pinching = false;
   // Thumbs up / down: a straight thumb (base -> tip nearly as long as its two segments) standing clear of the
