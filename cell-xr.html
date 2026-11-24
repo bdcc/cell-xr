@@ -2136,7 +2136,7 @@ function frame() {
   if (renderer.xr.isPresenting) {
     // VR: the headset is the input provider; same pipeline as the webcam from here on
     xrProvider.update(now, dt);
-    if (!tut.playing) {
+    if (!(tut.on && tut.playing)) {  // real hands act unless a tutorial demo is playing
       const th = tut.on && !curSteps()[tut.i]?.L;  // single-hand tut step: block two-hand scale
       if (th) settings.twoHand = false;
       interact(dt, LABELS);
@@ -2150,7 +2150,7 @@ function frame() {
     lastDetect = now;
     const res = landmarker.detectForVideo(video, now);
     processResult(res, now, detDt);
-    if (!tut.playing) {
+    if (!(tut.on && tut.playing)) {
       const th = tut.on && !curSteps()[tut.i]?.L;
       if (th) settings.twoHand = false;
       interact(detDt, LABELS);
