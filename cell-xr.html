@@ -434,6 +434,8 @@
         <label class="toggle"><input type="checkbox" id="g-grip">Grab · palm grip<small>K</small></label>
         <label class="toggle"><input type="checkbox" id="g-depth">Push / pull for depth</label>
         <label class="toggle"><input type="checkbox" id="g-twist">Twist wrist to rotate</label>
+        <label class="toggle"><input type="checkbox" id="g-orbit" checked>Grab moves · pinch rotates</label>
+        <label class="toggle"><input type="checkbox" id="g-pinchHold">Pinch + hold still · switch to rotate</label>
         <label class="toggle"><input type="checkbox" id="g-twoHand">Two-hand pinch: roll, yaw, scale</label>
         <label class="toggle"><input type="checkbox" id="g-poke">Poke · nudge spin<small>N</small></label>
         <label class="toggle"><input type="checkbox" id="g-flick">Open · swipe flick<small>O</small></label>
@@ -644,7 +646,7 @@ const settings = {
   poke: false, grab: true, grip: true, thumb: false, flick: false, trackball: false,
   depth: true, twist: true, twoHand: true,
   crane: false, squeeze: false, clap: true, dust: false, burst: false,
-  pointer: false, menu: true, picker: true, aimMode: 'finger', aimGain: 2.2, craneSpeed: 2.5, craneMode: 'camera',
+  pointer: false, menu: true, picker: true, orbit: true, pinchHold: false, aimMode: 'finger', aimGain: 2.2, craneSpeed: 2.5, craneMode: 'camera',
   depthMode: 'window', selStyle: 'glow', videoMode: 'full', reach: 1, reachTouched: false, lock: 'free', sens: 1.2, friction: 1.1, depthGain: 5, camera: true, skeleton: true,
 };
 
@@ -653,8 +655,8 @@ const SET_GESTURES = ['grab', 'grip', 'depth', 'twist', 'twoHand', 'poke', 'flic
   'crane', 'squeeze', 'dust', 'burst', 'pointer'];
 const SETS = {
   grab: { name: 'Grab', on: ['grab', 'grip', 'depth', 'twist', 'twoHand'],
-    help: 'Pinch or close your hand on an object to hold it. While holding: move, push/pull for depth, twist to rotate. An open hand only hovers.',
-    legend: [['M PINCH', 'grab · move'], ['K GRAB', 'palm grip'], ['PUSH / PULL', 'depth'], ['TWIST', 'rotate'], ['2-HAND PINCH', 'roll · scale']] },
+    help: 'Pinch or close your hand on an object to hold it. Make a fist over an object to grab and move it; push/pull for depth. Pinch and drag to rotate it (pinch on empty space turns the selected object). An open hand only hovers.',
+    legend: [['FIST', 'move · push/pull'], ['M PINCH + DRAG', 'rotate'], ['2 FISTS', 'roll · scale']] },
   spin: { name: 'Spin', on: ['poke', 'flick', 'trackball', 'thumb'],
     help: 'Set objects spinning without picking them up. Thumbs-up brakes; hold it to set the object upright.',
     legend: [['N POKE', 'nudge'], ['O SWIPE', 'flick'], ['P FIST', 'drag to spin'], ['L THUMB', 'brake · hold to reset']] },
@@ -971,7 +973,8 @@ function classify(t, dt, fresh) {
   const thumbGap = Math.min(d(4, 6), d(4, 10)) / unit;  // thumb tucked over the fingers (fist) vs opposed (grab)
   // Suppress pinch onset during full grip so grab and pinch don't conflict.
   // Only when 3D world landmarks are available; 2D curl thresholds are unreliable.
-  const fullGrip = !!Wl && !ext.some(Boolean) && t.curl < 1.5;
+  // A real pinch keeps the index reaching out (indexOut) while the other fingers curl, so don't call that a grip.
+  const fullGrip = !!Wl && !indexOut && !ext.some(Boolean) && t.curl < 1.5;
   if (!t.pinching && t.pinchRatio < 0.33 && indexOut && !fullGrip) t.pinching = true;
   else if (t.pinching && (t.pinchRatio > 0.5 || fullGrip)) t.pinching = false;
   // Thumbs up / down: a straight thumb (base -> tip nearly as long as its two segments) standing clear of the
@@ -1072,6 +1075,7 @@ function updateGrab(t, dt) {
     baseline(t);
   }
   if (o.userData.two) updateTwo(o);
+  else if (pinchRotStep(t, g, o, dt)) { /* pinch-hold rotate owns the object this frame */ }
   else {
     let z = g.z0;
     // Hand grows as it nears the camera. Window: that pushes the object deeper. Mirror: it comes toward you.
@@ -1079,14 +1083,15 @@ function updateGrab(t, dt) {
     z = o.position.z + (z - o.position.z) * 0.5;
     o.position.lerp(worldAt(holdPt(t), z).add(g.offset), 0.55);
     // Wrist twist only during grip (palm-grab), not pinch. Webcam: roll axis only; VR: full 3D.
-    const hq = settings.twist && g.hq0 && g.mode === 'grip' ? handOrient(t) : null;
+    const gripTurns = settings.twist && !settings.orbit;   // grab-moves / pinch-rotates: a grip never turns the object
+    const hq = gripTurns && g.hq0 && g.mode === 'grip' ? handOrient(t) : null;
     if (hq) {
       const delta = hq.clone().multiply(g.hq0.clone().invert());
       let rv = quatToRotVec(delta).multiplyScalar(settings.sens);
       if (t.source === 'webcam') rv = AXES.z.clone().multiplyScalar(rv.z); // roll-only on webcam
       else rv = lockVec(rv);
       o.quaternion.slerp(rotVecToQuat(rv).multiply(g.q0), 0.6);
-    } else if (settings.twist && g.mode === 'grip') {
+    } else if (gripTurns && g.mode === 'grip') {
       // Fallback orbital rotation: hand movement while gripping spins the object (webcam with no wrist orient).
       const rv = dragRot(t.vel.x * dt, t.vel.y * dt, 0.008 * settings.sens);
       o.quaternion.multiplyQuaternions(rotVecToQuat(rv), o.quaternion);
@@ -1099,12 +1104,35 @@ function updateGrab(t, dt) {
   if (tut.on && !tut.playing && tutGoal.base && !o.userData.two)
     if (o.quaternion.angleTo(tutGoal.base.q) > THREE.MathUtils.degToRad(25)) tutEmit('twist');
 }
+// Pinch-hold rotate (optional, off by default; pinch-orbit in empty space is the default rotation).
+// Pinch to grab and move; hold the pinch still for dwellS and the grab switches to rotate. The object stays
+// put and the pinch point's travel since the switch turns it (left/right = yaw, up/down = pitch).
+const PINCH_ORBIT_GAIN = 0.0085;   // radians per screen px (× sens 1.2 ≈ pinch-test's 0.010)
+const PINCH_ROT = { dwellS: 0.6, stillPx: 14, stillScale: 0.08, gain: 0.012 };
+function pinchRotStep(t, g, o, dt) {
+  if (!settings.pinchHold || g.mode !== 'pinch' || (t.source !== 'webcam' && t.source !== 'xr')) return false;
+  const p = t.pinchPt;
+  if (!g.rot) {
+    const a = g.still;
+    if (!a || Math.hypot(p.x - a.x, p.y - a.y) > PINCH_ROT.stillPx || Math.abs(t.scale / a.scale - 1) > PINCH_ROT.stillScale)
+      g.still = { x: p.x, y: p.y, scale: t.scale, t: 0 };
+    else a.t += dt;
+    g.dwellP = Math.min(1, g.still.t / PINCH_ROT.dwellS);
+    if (g.dwellP < 1) return false;
+    g.rot = { x: p.x, y: p.y, q0: o.quaternion.clone() };
+    snapshot(o, 'Rotate');
+    showToast('Rotate · drag to turn · open pinch to drop', 1600);
+  }
+  const rv = dragRot(p.x - g.rot.x, p.y - g.rot.y, PINCH_ROT.gain * settings.sens);
+  o.quaternion.slerp(rotVecToQuat(rv).multiply(g.rot.q0), 0.5);
+  return true;
+}
 function endGrab(t) {
   const g = t.grab, o = g.obj;
   if (t.pinchHist && t.pinchHist.obj === o) { const hp = holdPt(t); t.pinchHist.moved = Math.hypot(hp.x - t.pinchHist.start.x, hp.y - t.pinchHist.start.y); }
   if (o.userData.two) endTwo(o);
   // Grip flick → spin; pinch never free-spins. Slow grip release snaps to nearest 45°.
-  if (g.mode === 'grip') {
+  if (g.mode === 'grip' && !settings.orbit) {
     if (g.rotVel.length() > 2) {
       o.userData.angVel.copy(lockVec(g.rotVel)).multiplyScalar(0.6).clampLength(0, 12);
     } else {
@@ -1159,7 +1187,7 @@ function endTwo(o) {
 
 /* ---------- fist trackball ---------- */
 function endSpin(t) {
-  if (t.spin) t.spin.obj.userData.spinBy = null;
+  if (t.spin && t.spin.obj.userData.spinBy === t) t.spin.obj.userData.spinBy = null;
   t.spin = null;
 }
 
@@ -1171,7 +1199,7 @@ const free = o => o && !o.userData.grabbedBy && !o.userData.spinBy;
 function interact(dt, labels) {
   for (const label of labels) {
     const t = tracks[label];
-    if (!t.visible || t.pairMode) continue;   // a two-hand gesture owns this hand
+    if (!t.visible || t.pairMode) { if (t.pairMode && t.spin?.pinch) endSpin(t); continue; }   // a two-hand gesture owns this hand
     const rising = t.pinching && !t.wasPinching;
     t.wasPinching = t.pinching;
     if (!t.pinching && t.gesture !== 'grab') t.consumed = false;
@@ -1182,13 +1210,34 @@ function interact(dt, labels) {
 
     // PINCH (M) and GRAB (K): pick up, move, push/pull, twist, two-hand
     const holding = t.grab || t.assist;
-    if (holding) {
+    if (t.spin?.pinch) {
+      // PINCH ROTATE: drag turns the target until the pinch opens.
+      if (t.pinching) {
+        const s = t.spin, p = t.pinchPt;
+        rotateWorld(s.obj, dragRot(p.x - s.last.x, p.y - s.last.y, PINCH_ORBIT_GAIN * settings.sens));
+        s.last = { ...p };
+      } else endSpin(t);
+    } else if (holding) {
       const mode = t.grab ? t.grab.mode : t.assistMode;
       if (stillHolding(t, mode)) { if (t.grab) updateGrab(t, dt); }
       else { if (t.assist) endTwo(t.assist); if (t.grab) endGrab(t); }
     } else {
-      const mode = t.pinching && settings.grab ? 'pinch' : t.gesture === 'grab' && settings.grip ? 'grip' : null;
-      if (mode && !t.consumed) {
+      // With pinch rotating, a fist also grips to move: its index curls into the palm, so it can never read as a pinch.
+      const gripPose = t.gesture === 'grab' || (settings.orbit && t.gesture === 'fist');
+      const mode = t.pinching && settings.grab ? 'pinch' : gripPose && settings.grip ? 'grip' : null;
+      if (mode === 'pinch' && settings.orbit) {
+        // Grab moves, pinch rotates: a fresh pinch turns the object under it, else the selected one.
+        if (rising && !t.consumed) {
+          const hit = pick(t.pinchPt, 1.15);
+          const target = free(hit) ? hit : selected && objects.includes(selected) ? selected : objects[0];
+          if (free(target)) {
+            selected = target;
+            snapshot(target, 'Rotate');
+            t.spin = { obj: target, last: { ...t.pinchPt }, pinch: true };
+            target.userData.spinBy = t; target.userData.homing = false; target.userData.angVel.set(0, 0, 0);
+          }
+        }
+      } else if (mode && !t.consumed) {
         let o = pick(holdPt(t, mode), mode === 'grip' ? 1.4 : 1.15);
         // Remote grab: with something locked by the finger gun, a pinch or grab in empty space takes hold of it.
         if (!o && settings.pointer && free(rayLock)) o = rayLock;
@@ -1253,7 +1302,8 @@ function interact(dt, labels) {
     } else { t.thumbHold = 0; t.thumbDone = false; }
 
     // FIST (P): virtual trackball — also accepts 'grab' in sets where grab-pick is off
-    if (settings.trackball && (t.gesture === 'fist' || (t.gesture === 'grab' && !settings.grab)) && !t.grab) {
+    if (t.spin?.pinch) { /* pinch orbit owns this hand's spin */ }
+    else if (settings.trackball && (t.gesture === 'fist' || (t.gesture === 'grab' && !settings.grab)) && !t.grab) {
       if (!t.spin) {
         const o = pick(t.palm, 1.7);
         if (free(o)) {
@@ -1842,6 +1892,17 @@ function drawOverlay() {
     octx.beginPath(); octx.arc(t.pinchPt.x, t.pinchPt.y, r, 0, Math.PI * 2);
     octx.strokeStyle = busy ? GRAB : HAND; octx.lineWidth = 2; octx.stroke();
     if (busy) { octx.globalAlpha = 0.35; octx.fillStyle = GRAB; octx.fill(); octx.globalAlpha = 0.9; }
+    // pinch-hold rotate: dwell arc fills while still, dashed ring + label once rotating
+    const g = t.grab;
+    if (g?.rot) {
+      octx.setLineDash([4, 5]); octx.strokeStyle = GRAB; octx.lineWidth = 2.5;
+      octx.beginPath(); octx.arc(g.rot.x, g.rot.y, 40, 0, Math.PI * 2); octx.stroke(); octx.setLineDash([]);
+      octx.font = '600 11px "IBM Plex Mono", monospace'; octx.fillStyle = GRAB;
+      octx.fillText('ROTATE', g.rot.x - 22, g.rot.y - 48);
+    } else if (g?.dwellP > 0.15) {
+      octx.strokeStyle = GRAB; octx.lineWidth = 3;
+      octx.beginPath(); octx.arc(t.pinchPt.x, t.pinchPt.y, 34, -Math.PI / 2, -Math.PI / 2 + g.dwellP * Math.PI * 2); octx.stroke();
+    }
     if (t.spin) {
       octx.setLineDash([5, 6]); octx.strokeStyle = HAND;
       octx.beginPath(); octx.arc(t.palm.x, t.palm.y, 34, 0, Math.PI * 2); octx.stroke();
@@ -2366,7 +2427,7 @@ const GOALS = {
   'Pinch to grab':        { hint: 'Pinch the cube and move it somewhere else.', check: (o, b) => b.ev.has('grab:pinch') && movedFrom(o, b, 0.3), done: 'You picked it up and moved it.' },
   'Push and pull':        { hint: 'Pinch the cube, then move your hand toward or away from the screen.', check: (o, b) => b.ev.has('grab:pinch') && Math.abs(o.position.z - b.pos.z) > 1, done: 'You changed its depth.' },
   'Grab':                 { hint: 'Close your whole hand on the cube and move it (or resize it).', check: (o, b) => (b.ev.has('grab:grip') || b.ev.has('grab:pinch')) && (movedFrom(o, b, 0.3) || Math.abs(o.scale.x / b.s - 1) > 0.15), done: 'You grabbed it.' },
-  'Twist to rotate':      { hint: 'Grab the cube, then turn your wrist (or drag in a circle).', check: (o, b) => b.ev.has('twist') || turnedFrom(o, b, 25), done: 'You rotated it.' },
+  'Twist to rotate':      { hint: 'Pinch in empty space next to the cube, then drag to turn it.', check: (o, b) => b.ev.has('twist') || turnedFrom(o, b, 25), done: 'You rotated it.' },
   'Fist to spin':         { hint: 'Make a fist over the cube and drag to roll it.', check: (o, b) => b.ev.has('trackball') && turnedFrom(o, b, 45), done: 'Trackball spin done.' },
   'Open hand swipe':      { hint: 'Swipe an open hand quickly across the cube.', ev: ['flick'], done: 'Nice flick.' },
   'Thumbs up':            { hint: 'Give a thumbs up and hold it until the cube settles upright.', ev: ['upright'], done: 'It\'s back upright.' },
@@ -3277,7 +3338,7 @@ function updatePalmReveal(dt, now) {
 /* ---------- controls ---------- */
 const btnCam = $('#btnCam');
 for (const k of ['poke', 'grab', 'grip', 'thumb', 'flick', 'trackball', 'depth', 'twist', 'twoHand',
-  'crane', 'squeeze', 'clap', 'dust', 'burst', 'pointer', 'menu', 'picker']) {
+  'crane', 'squeeze', 'clap', 'dust', 'burst', 'pointer', 'menu', 'picker', 'orbit', 'pinchHold']) {
   const el = $('#g-' + k);
   el.addEventListener('change', () => {
     settings[k] = el.checked;
